@@ -1,9 +1,12 @@
 #ifndef __SYLAR_LOG_H__
 #define __SYLAR_LOG_H__
 #include <cstdint>
+#include <cstdio>
 #include <ctime>
+#include <fstream>
 #include <list>
 #include <memory>
+#include <sstream>
 #include <stdint.h>
 #include <string>
 
@@ -16,6 +19,37 @@ class LogEvent
 public:
     typedef std::shared_ptr<LogEvent> ptr;
     LogEvent();
+    const char *getFile() const
+    {
+        return m_file;
+    }
+
+    int32_t getLine() const
+    {
+        return m_line;
+    }
+
+    uint32_t getElapse() const
+    {
+        return m_elapse;
+    }
+    int32_t getThreadId() const
+    {
+        return m_threadId;
+    }
+    uint32_t getFiberId() const
+    {
+        return m_fiberId;
+    }
+    int64_t getTime() const
+    {
+        return m_time;
+    }
+
+    const std::string &getContent() const
+    {
+        return m_content;
+    }
 
 private:
     const char *m_file = nullptr; // 日志文件
@@ -33,12 +67,39 @@ class LogLevel
 public:
     enum Level
     {
+        UNKNOW = 0,
         DEBUG = 1,
         INFO = 2,
         WARN = 3,
         ERROR = 4,
         FATAL = 5
     };
+
+    static const char *Tostring(LogLevel::Level level);
+};
+
+// 日志格式器
+class LogFormatter
+{
+public:
+    typedef std::shared_ptr<LogFormatter> ptr;
+    LogFormatter(const std::string &pattern);
+    std::string format(LogLevel::Level level, const LogEvent::ptr event);
+
+public:
+    class FormatItem
+    {
+    public:
+        typedef std::shared_ptr<FormatItem> ptr;
+        virtual ~FormatItem();
+        virtual void format(std::ostream &os, LogLevel::Level level, LogEvent::ptr event) = 0;
+    };
+
+    void init();
+
+private:
+    std::string m_pattern;
+    std::list<FormatItem::ptr> m_items;
 };
 
 // 日志输出地（把日志输出到控制台Or一个文件）
@@ -50,19 +111,20 @@ public:
     {
     }
 
-    void log(LogLevel::Level level, LogEvent::ptr event);
+    virtual void log(LogLevel::Level level, LogEvent::ptr event) = 0;
+    void setFormatter(LogFormatter::ptr val)
+    {
+        m_formatter = val;
+    }
 
-private:
+    LogFormatter::ptr getFormatter() const
+    {
+        return m_formatter;
+    }
+
+protected:
     LogLevel::Level m_level;
-};
-
-// 日志格式器
-class LogFormatter
-{
-public:
-    typedef std::shared_ptr<LogFormatter> ptr;
-    std::string format(LogEvent::ptr event);
-    LogFormatter();
+    LogFormatter::ptr m_formatter;
 };
 
 // 日志器
@@ -75,7 +137,7 @@ public:
 
     // 输出不同级别的日志
     void log(LogLevel::Level level, LogEvent::ptr event);
-    void degug(LogEvent::ptr event);
+    void debug(LogEvent::ptr event);
     void info(LogEvent::ptr event);
     void warn(LogEvent::ptr event);
     void error(LogEvent::ptr event);
@@ -103,11 +165,27 @@ private:
 // 输出到控制台的Appender
 class StdoutLogAppender : public LogAppender
 {
+public:
+    typedef std::unique_ptr<StdoutLogAppender> ptr;
+    virtual void log(LogLevel::Level level, LogEvent::ptr event) override;
+
+private:
 }; // namespace sylar
 
 // 输出到文件的Appender
-class FileAppender : public LogAppender
+class FileLogAppender : public LogAppender
 {
+public:
+    typedef std::unique_ptr<FileLogAppender> ptr;
+    FileLogAppender(const std::string &filename);
+    virtual void log(LogLevel::Level level, LogEvent::ptr event) override;
+
+    // 重新打开文件，成功返回true
+    bool reopen();
+
+private:
+    std::string m_filename;
+    std::ofstream m_fileStream;
 };
 
 } // namespace sylar
