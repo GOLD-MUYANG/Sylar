@@ -1,0 +1,3 @@
+vscode-server如果突然不管用了，重新安装的话里面的插件也没了。如果clangd不管用的话，看看ubuntu里面的clangd版本，如果clangd也没了，就重新安装一下
+
+
