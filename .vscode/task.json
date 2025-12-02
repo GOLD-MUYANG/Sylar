@@ -1,20 +1,34 @@
 {
     "version": "2.0.0",
+    "options": {
+        "cwd": "${workspaceFolder}/build/"
+    },
     "tasks": [
         {
-            "label": "build",
+            "label": "cmake",
             "type": "shell",
-            "command": "g++",
+            "command": "cmake",
             "args": [
-                "-g",
-                "${file}",
-                "-o",
-                "${fileDirname}/${fileBasenameNoExtension}.out"
-            ],
+                ".."
+            ]
+        },
+        {
+            "label": "make",
             "group": {
                 "kind": "build",
                 "isDefault": true
-            }
+            },
+            "dependsOn": [
+                "cmake"
+            ],
+            "command": "make",
+            "args": []
+        },
+        {
+            "label": "Build my project",
+            "dependsOn": [
+                "make"
+            ]
         }
     ]
 }

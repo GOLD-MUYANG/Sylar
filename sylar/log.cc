@@ -5,6 +5,8 @@
 #include <ctime>
 #include <functional>
 #include <map>
+#include <memory>
+#include <sstream>
 #include <string>
 #include <time.h>
 
@@ -31,6 +33,21 @@ const char *LogLevel::Tostring(LogLevel::Level level)
     }
     return "UNKNOW";
 };
+
+LogEventWrap::LogEventWrap(LogEvent::ptr e) : m_event(e)
+{
+}
+LogEventWrap::~LogEventWrap()
+{
+    if (m_event)
+    {
+        m_event->getLogger()->log(m_event->getLevel(), m_event);
+    }
+}
+std::stringstream &LogEventWrap::getSS()
+{
+    return m_event->getSS();
+}
 
 class MessageFormatItem : public LogFormatter::FormatItem
 {
@@ -188,13 +205,30 @@ private:
     std::string m_string;
 };
 
-LogEvent::LogEvent(const char *file, int32_t line, uint32_t elapse, int32_t threadId, uint32_t fiberId, int64_t time)
-    : m_file(file), m_line(line), m_elapse(elapse), m_threadId(threadId), m_fiberId(fiberId), m_time(time){};
+class TabFormatItem : public LogFormatter::FormatItem
+{
+public:
+    TabFormatItem(const std::string &str = "")
+    {
+    }
+    void format(std::ostream &os, std::shared_ptr<Logger> logger, LogLevel::Level level, LogEvent::ptr event) override
+    {
+
+        os << "\t"; // 制表符
+    };
+
+private:
+    std::string m_string;
+};
+
+LogEvent::LogEvent(std::shared_ptr<Logger> logger, LogLevel::Level level, const char *file, int32_t line, uint32_t elapse, int32_t threadId,
+                   uint32_t fiberId, int64_t time)
+    : m_file(file), m_line(line), m_elapse(elapse), m_threadId(threadId), m_fiberId(fiberId), m_time(time), m_level(level), m_logger(logger){};
 
 Logger::Logger(const std::string &name) : m_name(name), m_level(LogLevel::DEBUG)
 {
     // 如果没有传递格式化参数，就使用默认的格式化参数
-    m_formatter.reset(new LogFormatter("%d [%p] <%f:%l>      %m %n"));
+    m_formatter.reset(new LogFormatter("%d{%Y-%m-%d %H:%M:%S}%T%t%T%F%T[%p]%T[%c]%T<%f:%l>%T%m%T%n"));
 }
 
 void Logger::addAppender(LogAppender::ptr appender)
@@ -335,8 +369,8 @@ void LogFormatter::init()
         size_t fmt_begin = 0;
         while (n < m_pattern.size())
         {
-            // 如果有空格符，说明就到了下一个需要格式化的位置
-            if (!std::isalpha(m_pattern[n]) && m_pattern[n] != '{' && m_pattern[n] != '}')
+            // 在大括号里遇到非字母字符也处理
+            if (!fmt_status && !std::isalpha(m_pattern[n]) && m_pattern[n] != '{' && m_pattern[n] != '}')
             {
                 break;
             }
@@ -345,9 +379,9 @@ void LogFormatter::init()
             if (m_pattern[n] == '{')
             {
                 str = m_pattern.substr(i + 1, n - i - 1);
-                ++n;
                 fmt_status = 1; // 遇到了{
                 fmt_begin = n;
+                ++n;
                 continue;
             }
 
@@ -379,7 +413,7 @@ void LogFormatter::init()
         // 如果格式化符号解析错误
         else if (fmt_status == 1)
         {
-            std::cout << "pattern parse error:" << m_pattern << "-" << m_pattern.substr(i) << std::endl;
+            // std::cout << "pattern parse error:" << m_pattern << "-" << m_pattern.substr(i) << std::endl;
             vec.push_back(std::make_tuple("<<pattern_error>>", fmt, 0));
         }
         // 如果遇到解析化符号{}而且解析成功
@@ -406,7 +440,7 @@ void LogFormatter::init()
     }
         XX(m, MessageFormatItem),  XX(p, LevelFormatItem),   XX(r, ElapseFormatItem),   XX(c, NameFormatItem),
         XX(t, ThreadIdFormatItem), XX(n, NewLineFormatItem), XX(d, DateTimeFormatItem), XX(f, FilenameFormatItem),
-        XX(l, LineFormatItem),     XX(F, FiberIdFormatItem)
+        XX(l, LineFormatItem),     XX(F, FiberIdFormatItem), XX(T, TabFormatItem)
 #undef XX
     };
 
@@ -429,7 +463,7 @@ void LogFormatter::init()
                 m_items.push_back(it->second(std::get<1>(i)));
             }
         }
-        std::cout << "(" << std::get<0>(i) << ")-(" << std::get<1>(i) << "),(" << std::get<2>(i) << ")" << std::endl;
+        // std::cout << "(" << std::get<0>(i) << ")-(" << std::get<1>(i) << "),(" << std::get<2>(i) << ")" << std::endl;
     }
 }
 
