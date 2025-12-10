@@ -1,0 +1,133 @@
+\hypertarget{classsylar_1_1LogFormatter}{}\doxysection{sylar\+::Log\+Formatter类 参考}
+\label{classsylar_1_1LogFormatter}\index{sylar::LogFormatter@{sylar::LogFormatter}}
+
+
+{\ttfamily \#include $<$log.\+h$>$}
+
+
+
+sylar\+::Log\+Formatter 的协作图\+:\nopagebreak
+\begin{figure}[H]
+\begin{center}
+\leavevmode
+\includegraphics[width=192pt]{classsylar_1_1LogFormatter__coll__graph}
+\end{center}
+\end{figure}
+\doxysubsection*{类}
+\begin{DoxyCompactItemize}
+\item 
+class \mbox{\hyperlink{classsylar_1_1LogFormatter_1_1FormatItem}{Format\+Item}}
+\end{DoxyCompactItemize}
+\doxysubsection*{Public 类型}
+\begin{DoxyCompactItemize}
+\item 
+typedef std\+::shared\+\_\+ptr$<$ \mbox{\hyperlink{classsylar_1_1LogFormatter}{Log\+Formatter}} $>$ \mbox{\hyperlink{classsylar_1_1LogFormatter_a6968c960b5bed4e57badb54afd45c5e5}{ptr}}
+\end{DoxyCompactItemize}
+\doxysubsection*{Public 成员函数}
+\begin{DoxyCompactItemize}
+\item 
+\mbox{\hyperlink{classsylar_1_1LogFormatter_a939b4a2513ad3f27736346f06775369d}{Log\+Formatter}} (const std\+::string \&pattern)
+\item 
+std\+::string \mbox{\hyperlink{classsylar_1_1LogFormatter_a3579ab15265d4b115baf250f180bfbc4}{format}} (std\+::shared\+\_\+ptr$<$ \mbox{\hyperlink{classsylar_1_1Logger}{Logger}} $>$ logger, \mbox{\hyperlink{classsylar_1_1LogLevel_aa16de1ee1263beffb6f17ba6deb0271b}{Log\+Level\+::\+Level}} level, const \mbox{\hyperlink{classsylar_1_1LogEvent_a5edba5d4e7c7b90edc5585716065f497}{Log\+Event\+::ptr}} event)
+\item 
+void \mbox{\hyperlink{classsylar_1_1LogFormatter_a84b8213e503570f4de1655028f7debf3}{init}} ()
+\end{DoxyCompactItemize}
+\doxysubsection*{Private 属性}
+\begin{DoxyCompactItemize}
+\item 
+std\+::string \mbox{\hyperlink{classsylar_1_1LogFormatter_a94a021814a28d55f836fca46d0721da7}{m\+\_\+pattern}}
+\item 
+std\+::vector$<$ \mbox{\hyperlink{classsylar_1_1LogFormatter_1_1FormatItem_ad93e3dca34abd8e81366a141f67dbd95}{Format\+Item\+::ptr}} $>$ \mbox{\hyperlink{classsylar_1_1LogFormatter_a5a674f49c17407092c716aa72e6fd131}{m\+\_\+items}}
+\end{DoxyCompactItemize}
+
+
+\doxysubsection{成员类型定义说明}
+\mbox{\Hypertarget{classsylar_1_1LogFormatter_a6968c960b5bed4e57badb54afd45c5e5}\label{classsylar_1_1LogFormatter_a6968c960b5bed4e57badb54afd45c5e5}} 
+\index{sylar::LogFormatter@{sylar::LogFormatter}!ptr@{ptr}}
+\index{ptr@{ptr}!sylar::LogFormatter@{sylar::LogFormatter}}
+\doxysubsubsection{\texorpdfstring{ptr}{ptr}}
+{\footnotesize\ttfamily typedef std\+::shared\+\_\+ptr$<$\mbox{\hyperlink{classsylar_1_1LogFormatter}{Log\+Formatter}}$>$ \mbox{\hyperlink{classsylar_1_1LogFormatter_a6968c960b5bed4e57badb54afd45c5e5}{sylar\+::\+Log\+Formatter\+::ptr}}}
+
+
+
+\doxysubsection{构造及析构函数说明}
+\mbox{\Hypertarget{classsylar_1_1LogFormatter_a939b4a2513ad3f27736346f06775369d}\label{classsylar_1_1LogFormatter_a939b4a2513ad3f27736346f06775369d}} 
+\index{sylar::LogFormatter@{sylar::LogFormatter}!LogFormatter@{LogFormatter}}
+\index{LogFormatter@{LogFormatter}!sylar::LogFormatter@{sylar::LogFormatter}}
+\doxysubsubsection{\texorpdfstring{LogFormatter()}{LogFormatter()}}
+{\footnotesize\ttfamily sylar\+::\+Log\+Formatter\+::\+Log\+Formatter (\begin{DoxyParamCaption}\item[{const std\+::string \&}]{pattern }\end{DoxyParamCaption})}
+
+
+
+引用了 init().
+
+函数调用图\+:\nopagebreak
+\begin{figure}[H]
+\begin{center}
+\leavevmode
+\includegraphics[width=340pt]{classsylar_1_1LogFormatter_a939b4a2513ad3f27736346f06775369d_cgraph}
+\end{center}
+\end{figure}
+
+
+\doxysubsection{成员函数说明}
+\mbox{\Hypertarget{classsylar_1_1LogFormatter_a3579ab15265d4b115baf250f180bfbc4}\label{classsylar_1_1LogFormatter_a3579ab15265d4b115baf250f180bfbc4}} 
+\index{sylar::LogFormatter@{sylar::LogFormatter}!format@{format}}
+\index{format@{format}!sylar::LogFormatter@{sylar::LogFormatter}}
+\doxysubsubsection{\texorpdfstring{format()}{format()}}
+{\footnotesize\ttfamily std\+::string sylar\+::\+Log\+Formatter\+::format (\begin{DoxyParamCaption}\item[{std\+::shared\+\_\+ptr$<$ \mbox{\hyperlink{classsylar_1_1Logger}{Logger}} $>$}]{logger,  }\item[{\mbox{\hyperlink{classsylar_1_1LogLevel_aa16de1ee1263beffb6f17ba6deb0271b}{Log\+Level\+::\+Level}}}]{level,  }\item[{const \mbox{\hyperlink{classsylar_1_1LogEvent_a5edba5d4e7c7b90edc5585716065f497}{Log\+Event\+::ptr}}}]{event }\end{DoxyParamCaption})}
+
+
+
+引用了 m\+\_\+items.
+
+\mbox{\Hypertarget{classsylar_1_1LogFormatter_a84b8213e503570f4de1655028f7debf3}\label{classsylar_1_1LogFormatter_a84b8213e503570f4de1655028f7debf3}} 
+\index{sylar::LogFormatter@{sylar::LogFormatter}!init@{init}}
+\index{init@{init}!sylar::LogFormatter@{sylar::LogFormatter}}
+\doxysubsubsection{\texorpdfstring{init()}{init()}}
+{\footnotesize\ttfamily void sylar\+::\+Log\+Formatter\+::init (\begin{DoxyParamCaption}{ }\end{DoxyParamCaption})}
+
+
+
+引用了 m\+\_\+items, m\+\_\+pattern , 以及 XX.
+
+
+
+被这些函数引用 Log\+Formatter().
+
+这是这个函数的调用关系图\+:\nopagebreak
+\begin{figure}[H]
+\begin{center}
+\leavevmode
+\includegraphics[width=340pt]{classsylar_1_1LogFormatter_a84b8213e503570f4de1655028f7debf3_icgraph}
+\end{center}
+\end{figure}
+
+
+\doxysubsection{类成员变量说明}
+\mbox{\Hypertarget{classsylar_1_1LogFormatter_a5a674f49c17407092c716aa72e6fd131}\label{classsylar_1_1LogFormatter_a5a674f49c17407092c716aa72e6fd131}} 
+\index{sylar::LogFormatter@{sylar::LogFormatter}!m\_items@{m\_items}}
+\index{m\_items@{m\_items}!sylar::LogFormatter@{sylar::LogFormatter}}
+\doxysubsubsection{\texorpdfstring{m\_items}{m\_items}}
+{\footnotesize\ttfamily std\+::vector$<$\mbox{\hyperlink{classsylar_1_1LogFormatter_1_1FormatItem_ad93e3dca34abd8e81366a141f67dbd95}{Format\+Item\+::ptr}}$>$ sylar\+::\+Log\+Formatter\+::m\+\_\+items\hspace{0.3cm}{\ttfamily [private]}}
+
+
+
+被这些函数引用 format() , 以及 init().
+
+\mbox{\Hypertarget{classsylar_1_1LogFormatter_a94a021814a28d55f836fca46d0721da7}\label{classsylar_1_1LogFormatter_a94a021814a28d55f836fca46d0721da7}} 
+\index{sylar::LogFormatter@{sylar::LogFormatter}!m\_pattern@{m\_pattern}}
+\index{m\_pattern@{m\_pattern}!sylar::LogFormatter@{sylar::LogFormatter}}
+\doxysubsubsection{\texorpdfstring{m\_pattern}{m\_pattern}}
+{\footnotesize\ttfamily std\+::string sylar\+::\+Log\+Formatter\+::m\+\_\+pattern\hspace{0.3cm}{\ttfamily [private]}}
+
+
+
+被这些函数引用 init().
+
+
+
+该类的文档由以下文件生成\+:\begin{DoxyCompactItemize}
+\item 
+sylar/\mbox{\hyperlink{log_8h}{log.\+h}}\item 
+sylar/\mbox{\hyperlink{log_8cc}{log.\+cc}}\end{DoxyCompactItemize}

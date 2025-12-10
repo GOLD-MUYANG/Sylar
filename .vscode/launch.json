@@ -21,9 +21,24 @@
             "MIMode": "gdb",
             "setupCommands": [
                 {
-                    "description": "为 gdb 启用整齐打印",
-                    "text": "-enable-pretty-printing",
-                    "ignoreFailures": false
+                    "text": "-enable-pretty-printing"
+                },
+                // 跳过所有系统头文件（库文件）
+                {
+                    "text": "skip file /usr/include/*"
+                },
+                {
+                    "text": "skip file /usr/lib/*"
+                },
+                {
+                    "text": "skip file /lib/*"
+                },
+                // 跳过所有 C++ STL 函数（这里是关键）
+                {
+                    "text": "skip -rfu std::.*"
+                },
+                {
+                    "text": "skip -rfu __gnu_cxx::.*"
                 }
             ],
             "preLaunchTask": "C/C++: gcc-9 生成活动文件",
@@ -31,7 +46,7 @@
                 将preLaunchTask后的参数修改为"Build my project"
                 即与tasks.json的最后一个lable对应
             */
-            "miDebuggerPath": "/usr/bin/gdb",
+            "miDebuggerPath": "/usr/bin/gdb"
         }
     ]
 }

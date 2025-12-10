@@ -1,3 +1,9 @@
 vscode-server如果突然不管用了，重新安装的话里面的插件也没了。如果clangd不管用的话，看看ubuntu里面的clangd版本，如果clangd也没了，就重新安装一下
 
+git push不上去，可以配置
+git config --global http.proxy http://192.168.0.101:7890
+git config --global https.proxy http://192.168.0.101:7890
+设置代理
+
+
 
