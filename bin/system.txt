@@ -1,0 +1,2 @@
+2026-01-19 22:29:56	system	[INFO]	hello sylar system log
+

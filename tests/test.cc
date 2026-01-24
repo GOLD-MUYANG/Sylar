@@ -7,10 +7,8 @@ using namespace std;
 int main()
 {
     sylar::Logger::ptr logger(new sylar::Logger);
-    logger->addAppender(
-        sylar::StdoutLogAppender::ptr(new sylar::StdoutLogAppender));
-    sylar::FileLogAppender::ptr file_appender(
-        new sylar::FileLogAppender("./log.txt"));
+    logger->addAppender(sylar::StdoutLogAppender::ptr(new sylar::StdoutLogAppender));
+    sylar::FileLogAppender::ptr file_appender(new sylar::FileLogAppender("./log.txt"));
     sylar::LogFormatter::ptr fmt(new sylar::LogFormatter("%d%T%p%T%m%n"));
     file_appender->setFormatter(fmt);
     file_appender->setLevel(sylar::LogLevel::ERROR);
@@ -20,7 +18,7 @@ int main()
     SYLAR_LOG_ERROR(logger) << "test macro error";
     SYLAR_LOG_FMT_ERROR(logger, "test fmt %s", "aa");
 
-    auto l = sylar::LoggerMgr::GetInstance().getLogger("xx");
+    auto l = sylar::LoggerMgr::GetInstance()->getLogger("xx");
     SYLAR_LOG_INFO(l) << "XXX";
     return 0;
 }

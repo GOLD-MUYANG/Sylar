@@ -8,13 +8,12 @@ template <class T, class X = void, int N = 0>
 class Singleton
 {
 public:
-    static T &GetInstance()
+    static T *GetInstance()
     {
         static T instance;
-        return instance;
+        return &instance;
     }
 };
-
 template <class T, class X = void, int N = 0>
 class SingletonPtr
 {
