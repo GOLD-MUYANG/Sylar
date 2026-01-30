@@ -1,7 +1,6 @@
-#include "sylar/thread.h"
-#include "sylar/sylar.h"
-#include <functional>
-#include <pthread.h>
+#include "thread.h"
+#include "log.h"
+#include "util.h"
 namespace sylar
 {
 //创建一个静态变量，避免函数在层层调用时还要传递这个Thread指针
@@ -31,9 +30,12 @@ Thread::Thread(std::function<void()> cb, const std::string &name) : m_name(name)
     int rt = pthread_create(&m_thread, nullptr, &Thread::run, this);
     if (rt)
     {
-        SYLAR_LOG_ERROR(g_logger) << "pthread_join thread fail, rt=" << rt << " name=" << m_name;
-        throw std::logic_error("pthread_join error");
+        SYLAR_LOG_ERROR(g_logger) << "pthread_create thread fail, rt=" << rt << " name=" << name;
+        throw std::logic_error("pthread_create error");
     }
+    //主线程要单开一个线程，要让子线程初始化完毕后，主线程才能继续往下走，所以卡在这里
+    //否则的话再外面有可能会要获取子线程的某个方法某个返回值，就会出问题
+    m_semaphore.wait();
 }
 
 Thread::~Thread()
@@ -74,8 +76,36 @@ void *Thread::run(void *arg)
     */
     std::function<void()> cb;
     cb.swap(thread->m_cb);
+
+    //加锁是为了子线程初始化不出问题，子线程本身就是去处理一个业务问题，和主线程的东西是分开的
+    //所以释放也早于业务的逻辑
+    thread->m_semaphore.notify();
     cb();
+
     return 0;
+}
+
+Semaphore::Semaphore(uint32_t count)
+{
+    if (sem_init(&m_semaphore, 9, count))
+    {
+        throw std::logic_error("sem_init error");
+    }
+}
+Semaphore ::~Semaphore() { sem_destroy(&m_semaphore); }
+void Semaphore::wait()
+{
+    if (sem_wait(&m_semaphore))
+    {
+        throw std::logic_error("sem_wait error");
+    }
+}
+void Semaphore::notify()
+{
+    if (sem_post(&m_semaphore))
+    {
+        throw std::logic_error("sem_post error");
+    }
 }
 
 } // namespace sylar

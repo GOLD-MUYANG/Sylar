@@ -1,6 +1,8 @@
 #include "config.h"
 #include "sylar/log.h"
+#include "thread.h"
 #include <algorithm>
+#include <iostream>
 #include <string>
 #include <utility>
 #include <yaml-cpp/node/node.h>
@@ -9,6 +11,7 @@ namespace sylar
 
 ConfigVarBase::ptr Config::LookupBase(const std::string &name)
 {
+    RWMutexType::ReadLock lock(GetMutex());
     auto it = GetDatas().find(name);
     if (it == GetDatas().end())
     {
@@ -67,4 +70,16 @@ void Config::LoadFromYaml(const YAML::Node &root)
         }
     }
 }
+
+void Config::Visit(std::function<void(ConfigVarBase::ptr)> cb)
+{
+    RWMutexType::ReadLock lock(GetMutex());
+    ConfigVarMap &m = GetDatas();
+    for (auto it = m.begin(); it != m.end(); it++)
+    {
+        std::cout << it->second << std::endl;
+        cb(it->second);
+    }
+}
+
 } // namespace sylar

@@ -1,0 +1,36 @@
+2026-01-29 20:58:32	test
+2026-01-29 20:58:32	name=logs description=logs config typename=St3setIN5sylar9LogDefineESt4lessIS1_ESaIS1_EE value=- name: root
+  level: INFO
+  appenders:
+    - type: FileLogAppender
+      file: root.txt
+      level: DEBUG
+    - type: StdoutLogAppender
+      level: DEBUG
+- name: system
+  level: DEBUG
+  appenders:
+    - type: FileLogAppender
+      file: system.txt
+      level: DEBUG
+      formatter: "%d%T%c%T[%p]%T%m%n"
+    - type: StdoutLogAppender
+      level: DEBUG
+2026-01-29 20:58:32	test
+2026-01-29 20:58:32	name=system.int_list description=system int list typename=NSt7__cxx114listIiSaIiEEE value=- 1
+- 2
+2026-01-29 20:58:32	test
+2026-01-29 20:58:32	name=system.int_set description=system int set typename=St3setIiSt4lessIiESaIiEE value=- 1
+- 2
+2026-01-29 20:58:32	test
+2026-01-29 20:58:32	name=system.int_uset description=system int uset typename=St13unordered_setIiSt4hashIiESt8equal_toIiESaIiEE value=- 2
+- 1
+2026-01-29 20:58:32	test
+2026-01-29 20:58:32	name=system.int_vec description=system int vec typename=St6vectorIiSaIiEE value=- 1
+- 2
+2026-01-29 20:58:32	test
+2026-01-29 20:58:32	name=system.port description=system port typename=i value=8080
+2026-01-29 20:58:32	test
+2026-01-29 20:58:32	name=system.str_int_map description=system str int map typename=St3mapINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEiSt4lessIS5_ESaISt4pairIKS5_iEEE value=k: 2
+2026-01-29 20:58:32	test
+2026-01-29 20:58:32	name=system.str_int_umap description=system str int map typename=St13unordered_mapINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEiSt4hashIS5_ESt8equal_toIS5_ESaISt4pairIKS5_iEEE value=k: 2

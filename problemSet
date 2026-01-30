@@ -1,0 +1,6 @@
+在这里记录写Sylar的时候遇到的一些问题
+1、
+测试线程程序的时候，发现程序停在锁lock方法，查看调用栈，发现是一开始是从调用LoggerManager开始的，而LoggerManager是拿到一个静态类，
+因此怀疑是静态变量初始化顺序的问题。但是一番排查并没有发现有问题。继续查看调用栈，发现在后面的logger.addAppender方法里，appender会设置formater
+这里是设置logger里面的appender的formater，而appender自己还有一个setformater方法，这样就导致了重复加锁，引发了死锁。
+同一个问题多次出现，全部解决

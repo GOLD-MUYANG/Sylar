@@ -8,9 +8,9 @@
 <br>
 
 ##  1、日志系统
- 创建一个logger，首先类实例化会传入一串默认的字符串进行格式化，传入Fomatter，Formatter根据这串字符串去init，也就是说会生成对应的FormatItem，后面实际的输出字符串的拼接，其实就是这些FormatItem进行的。然后可选输出到控制台或者文件（Appender），再或者两者都要。Appender默认是使用的Logger里面的Formatter，如果在Appender初始化的时候传入一个新的Formatter，并指定输出的格式，就会用新的输出格式去输出。实际的输出，其实还是从Appender那里拿到的，所以，不同的Appender可以指定出不同的输出样式。同一个logger可以拥有多个Appender，也就保证了Logger有不同的输出样式。
+ <!-- 创建一个logger，首先类实例化会传入一串默认的字符串进行格式化，传入Fomatter，Formatter根据这串字符串去init，也就是说会生成对应的FormatItem，后面实际的输出字符串的拼接，其实就是这些FormatItem进行的。然后可选输出到控制台或者文件（Appender），再或者两者都要。Appender默认是使用的Logger里面的Formatter，如果在Appender初始化的时候传入一个新的Formatter，并指定输出的格式，就会用新的输出格式去输出。实际的输出，其实还是从Appender那里拿到的，所以，不同的Appender可以指定出不同的输出样式。同一个logger可以拥有多个Appender，也就保证了Logger有不同的输出样式。
 
- 实际的打印，通过LogEventWrap析构，会拿到event里的logger，然后logger.log输出，拿到logger里的所有appender，用appender.log输出，去调用appender里的formatter.format，去调用fomatter解析出来的FormatItem进行需要打印的字符串的拼接，由stringStream去实际的接收要打印的字符串。
+ 实际的打印，通过LogEventWrap析构，会拿到event里的logger，然后logger.log输出，拿到logger里的所有appender，用appender.log输出，去调用appender里的formatter.format，去调用fomatter解析出来的FormatItem进行需要打印的字符串的拼接，由stringStream去实际的接收要打印的字符串。 -->
 
 
 ### 日志系统整体流程（简版）

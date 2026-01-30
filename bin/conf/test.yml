@@ -4,7 +4,7 @@ logs:
       formatter: '%d%T%m%n'
       appender:
           - type: FileLogAppender
-            file: log.txt
+            file: config.txt
           - type: StdoutLogAppender
     - name: system
       level: debug

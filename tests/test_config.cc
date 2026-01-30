@@ -116,7 +116,7 @@ void test_log()
     static sylar::Logger::ptr system_log = SYLAR_LOG_NAME("system");
     SYLAR_LOG_INFO(system_log) << "hello sylar system log" << std::endl;
     std::cout << sylar::LoggerMgr::GetInstance()->toYamlString() << std::endl;
-    YAML::Node root = YAML::LoadFile("/home/sylar/workspace/sylar/bin/conf/test.yml");
+    YAML::Node root = YAML::LoadFile("/home/sylar/workspace/sylar/bin/conf/log.yml");
     sylar::Config::LoadFromYaml(root);
     // SYLAR_LOG_INFO(SYLAR_LOG_ROOT()) << "LoadFromYaml finished, now check logs config exist?";
     // auto logs_var = sylar::Config::LookupBase("logs");
@@ -141,5 +141,14 @@ int main(int argc, char **argv)
     // test_yaml();
     // test_config();
     test_log();
+    std::cout << "=========================" << std::endl;
+    sylar::Config::Visit(
+        [](sylar::ConfigVarBase::ptr var)
+        {
+            SYLAR_LOG_INFO(SYLAR_LOG_ROOT())
+                << "name=" << var->getName() << " description=" << var->getDescription()
+                << " typename=" << var->getTypeName() << " value=" << var->toString();
+        });
+    std::cout << "=========================" << std::endl;
     return 0;
 }

@@ -1,7 +1,7 @@
 #ifndef __SYLAR_LOG_H__
 #define __SYLAR_LOG_H__
 #include "singleton.h"
-#include "sylar/singleton.h"
+#include "thread.h"
 #include "util.h"
 #include <cstdarg>
 #include <cstdint>
@@ -148,6 +148,7 @@ public:
         typedef std::shared_ptr<FormatItem> ptr;
         // FormatItem(const std::string
         // &str = "") {};
+        virtual ~FormatItem() {}
         virtual void format(std::ostream &os,
                             std::shared_ptr<Logger> logger,
                             LogLevel::Level level,
@@ -171,6 +172,7 @@ class LogAppender
 
 public:
     typedef std::shared_ptr<LogAppender> ptr;
+    typedef Mutex MutexType;
     virtual ~LogAppender() {}
 
     virtual void
@@ -179,7 +181,7 @@ public:
 
     void setFormatter(LogFormatter::ptr val);
 
-    LogFormatter::ptr getFormatter() const { return m_formatter; }
+    LogFormatter::ptr getFormatter();
 
     LogLevel::Level getLevel() const { return m_level; }
 
@@ -189,6 +191,7 @@ protected:
     LogLevel::Level m_level = LogLevel::DEBUG;
     bool m_hasFormatter = false;
     LogFormatter::ptr m_formatter;
+    MutexType m_mutex;
 };
 
 // 日志器
@@ -198,6 +201,7 @@ class Logger : public std::enable_shared_from_this<Logger>
 
 public:
     typedef std::shared_ptr<Logger> ptr;
+    typedef Mutex MutexType;
 
     Logger(const std::string &name = "root");
 
@@ -218,7 +222,7 @@ public:
     void setLevel(LogLevel::Level val) { m_level = val; }
 
     const std::string &getName() const { return m_name; }
-    void setFormatter(LogFormatter::ptr &val);
+    void setFormatter(LogFormatter::ptr val);
     void setFormatter(const std::string &val);
     LogFormatter::ptr getFormatter();
     std::string toYamlString();
@@ -229,11 +233,13 @@ private:
     std::list<LogAppender::ptr> m_appenders; // 输出地集合
     LogFormatter::ptr m_formatter;
     Logger::ptr m_root;
+    MutexType m_mutex;
 };
 
 class LoggerManager
 {
 public:
+    typedef Mutex MutexType;
     LoggerManager();
     Logger::ptr getLogger(const std::string &name);
     void init();
@@ -244,6 +250,7 @@ public:
 private:
     std::map<std::string, Logger::ptr> m_loggers; // 日志器集合
     Logger::ptr m_root;                           // 默认的Logger
+    MutexType m_mutex;
 };
 
 typedef sylar::Singleton<LoggerManager> LoggerMgr;
@@ -253,8 +260,7 @@ class StdoutLogAppender : public LogAppender
 {
 public:
     typedef std::shared_ptr<StdoutLogAppender> ptr;
-    virtual void
-    log(std::shared_ptr<Logger> logger, LogLevel::Level level, LogEvent::ptr event) override;
+    virtual void log(Logger::ptr logger, LogLevel::Level level, LogEvent::ptr event) override;
     std::string toYamlString() override;
 
 private:
@@ -275,6 +281,7 @@ public:
 private:
     std::string m_filename;
     std::ofstream m_fileStream;
+    uint64_t m_lastTime = 0;
 };
 
 } // namespace sylar
