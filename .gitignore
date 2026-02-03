@@ -32,7 +32,7 @@
 *.app
 
 # doxygen output
-html
+html/
 
 # cmake output
 build
