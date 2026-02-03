@@ -3,8 +3,8 @@ vscode-server如果突然不管用了，重新安装的话里面的插件也没�
 git push不上去，
 windows cmd查看wlan2的ip地址，对应着本机和虚拟机相同的网段，把下面git的代理修改ip
 可以配置
-git config --global http.proxy http://192.168.0.100:7890
-git config --global https.proxy http://192.168.0.100:7890
+git config --global http.proxy http://192.168.0.101:7890
+git config --global https.proxy http://192.168.0.101:7890
 设置代理
 
 

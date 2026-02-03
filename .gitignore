@@ -32,7 +32,8 @@
 *.app
 
 # doxygen output
-html
+html/
+latex/
 
 # cmake output
 build
@@ -44,3 +45,4 @@ lib
 # log
 log_*.txt
 
+.cache/

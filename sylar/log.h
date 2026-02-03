@@ -21,7 +21,7 @@
     if (logger->getLevel() <= level)                                                               \
     sylar::LogEventWrap(sylar::LogEvent::ptr(new sylar::LogEvent(                                  \
                             logger, level, __FILE__, __LINE__, 0, sylar::GetThreadId(),            \
-                            sylar::GetFiberId(), time(0))))                                        \
+                            sylar::GetFiberId(), time(0), sylar::Thread::GetName())))              \
         .getSS()
 
 #define SYLAR_LOG_DEBUG(logger) SYLAR_LOG_LEVEL(logger, sylar::LogLevel::DEBUG)
@@ -34,7 +34,7 @@
     if (logger->getLevel() <= level)                                                               \
     sylar::LogEventWrap(sylar::LogEvent::ptr(new sylar::LogEvent(                                  \
                             logger, level, __FILE__, __LINE__, 0, sylar::GetThreadId(),            \
-                            sylar::GetFiberId(), time(0))))                                        \
+                            sylar::GetFiberId(), time(0), sylar::Thread::GetName())))              \
         .getEvent()                                                                                \
         ->format(fmt, __VA_ARGS__)
 
@@ -87,23 +87,59 @@ public:
              uint32_t elapse,
              int32_t threadId,
              uint32_t fiberId,
-             int64_t time);
-    const char *getFile() const { return m_file; }
+             int64_t time,
+             const std::string &thread_name);
+    const char *getFile() const
+    {
+        return m_file;
+    }
 
-    int32_t getLine() const { return m_line; }
+    int32_t getLine() const
+    {
+        return m_line;
+    }
 
-    uint32_t getElapse() const { return m_elapse; }
-    int32_t getThreadId() const { return m_threadId; }
-    uint32_t getFiberId() const { return m_fiberId; }
-    int64_t getTime() const { return m_time; }
+    uint32_t getElapse() const
+    {
+        return m_elapse;
+    }
+    int32_t getThreadId() const
+    {
+        return m_threadId;
+    }
+    uint32_t getFiberId() const
+    {
+        return m_fiberId;
+    }
+    int64_t getTime() const
+    {
+        return m_time;
+    }
 
-    std::string getContent() const { return m_ss.str(); }
+    std::string getContent() const
+    {
+        return m_ss.str();
+    }
 
-    std::stringstream &getSS() { return m_ss; }
+    std::stringstream &getSS()
+    {
+        return m_ss;
+    }
 
-    LogLevel::Level getLevel() const { return m_level; }
+    LogLevel::Level getLevel() const
+    {
+        return m_level;
+    }
 
-    std::shared_ptr<Logger> getLogger() const { return m_logger; }
+    std::shared_ptr<Logger> getLogger() const
+    {
+        return m_logger;
+    }
+
+    const std::string &getThreadName() const
+    {
+        return m_threadName;
+    }
 
     void format(const char *fmt, ...);
     void format(const char *fmt, va_list al);
@@ -118,6 +154,7 @@ private:
     std::stringstream m_ss;           // 日志内容
     LogLevel::Level m_level;          // 日志级别
     std::shared_ptr<Logger> m_logger; // 日志器
+    std::string m_threadName;         // 线程名称
 };
 
 class LogEventWrap
@@ -126,7 +163,10 @@ public:
     LogEventWrap(LogEvent::ptr e);
     ~LogEventWrap();
     std::stringstream &getSS();
-    LogEvent::ptr getEvent() const { return m_event; }
+    LogEvent::ptr getEvent() const
+    {
+        return m_event;
+    }
 
 private:
     LogEvent::ptr m_event;
@@ -148,7 +188,9 @@ public:
         typedef std::shared_ptr<FormatItem> ptr;
         // FormatItem(const std::string
         // &str = "") {};
-        virtual ~FormatItem() {}
+        virtual ~FormatItem()
+        {
+        }
         virtual void format(std::ostream &os,
                             std::shared_ptr<Logger> logger,
                             LogLevel::Level level,
@@ -156,8 +198,14 @@ public:
     };
 
     void init();
-    bool isError() const { return m_error; }
-    const std::string getPattern() const { return m_pattern; }
+    bool isError() const
+    {
+        return m_error;
+    }
+    const std::string getPattern() const
+    {
+        return m_pattern;
+    }
 
 private:
     std::string m_pattern;
@@ -173,7 +221,9 @@ class LogAppender
 public:
     typedef std::shared_ptr<LogAppender> ptr;
     typedef Mutex MutexType;
-    virtual ~LogAppender() {}
+    virtual ~LogAppender()
+    {
+    }
 
     virtual void
     log(std::shared_ptr<Logger> logger, LogLevel::Level level, LogEvent::ptr event) = 0;
@@ -183,9 +233,15 @@ public:
 
     LogFormatter::ptr getFormatter();
 
-    LogLevel::Level getLevel() const { return m_level; }
+    LogLevel::Level getLevel() const
+    {
+        return m_level;
+    }
 
-    void setLevel(LogLevel::Level val) { m_level = val; }
+    void setLevel(LogLevel::Level val)
+    {
+        m_level = val;
+    }
 
 protected:
     LogLevel::Level m_level = LogLevel::DEBUG;
@@ -217,11 +273,20 @@ public:
     void addAppender(LogAppender::ptr appender);
     void delAppender(LogAppender::ptr appender);
     void clearAppenders();
-    LogLevel::Level getLevel() const { return m_level; }
+    LogLevel::Level getLevel() const
+    {
+        return m_level;
+    }
 
-    void setLevel(LogLevel::Level val) { m_level = val; }
+    void setLevel(LogLevel::Level val)
+    {
+        m_level = val;
+    }
 
-    const std::string &getName() const { return m_name; }
+    const std::string &getName() const
+    {
+        return m_name;
+    }
     void setFormatter(LogFormatter::ptr val);
     void setFormatter(const std::string &val);
     LogFormatter::ptr getFormatter();
@@ -244,7 +309,10 @@ public:
     Logger::ptr getLogger(const std::string &name);
     void init();
 
-    Logger::ptr getRoot() const { return m_root; }
+    Logger::ptr getRoot() const
+    {
+        return m_root;
+    }
     std::string toYamlString();
 
 private:
