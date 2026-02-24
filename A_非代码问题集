@@ -10,3 +10,5 @@ git config --global https.proxy http://192.168.0.101:7890
 
 
 
+如果出现 In included file: main file cannot be included recursively when building a preamble
+那说明sylar.h不能用在其他的头文件，只能用在.cc里面
