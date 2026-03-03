@@ -62,16 +62,23 @@ public:
     void start();
     void stop();
 
-    virtual bool stopping();
-
 protected:
     //唤醒线程，调用 tickle() 通知调度器的工作线程 “有新任务了”。
-    void tickle();
-    //休眠
+    virtual void tickle();
+    //判断的是是否可以停止
+    virtual bool stopping();
+    //当没有任务时，线程会调用 idle()
+    //进入等待状态，包括等待IO的阻塞事件，也包括等待线程来新任务的唤醒
+    //命名为“等待”这个名字是比较合理的
     virtual void idle();
     void run();
 
     void setThis();
+
+    bool hasIdleThreads()
+    {
+        return m_idleThreadCount > 0;
+    }
 
 protected:
     std::vector<int> m_threadIds;

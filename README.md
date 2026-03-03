@@ -80,3 +80,6 @@
 
     2.2、难点在于如何用包含执行main函数的进程也去执行任务队列里的任务。
     m_rootFiber.reset(new Fiber(std::bind(&Scheduler::run, this), 0, true));关键是理解scheduler里的这一行代码，是新建了一个协程去执行run。
+### IO调度模块
+    流程暂不分析。后面可能单独走一遍
+    大概就是监听文件的读写事件（epoll），然后用scheduler去进行调度事件。

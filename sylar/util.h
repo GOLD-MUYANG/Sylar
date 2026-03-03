@@ -21,5 +21,9 @@ void BackTrace(std::vector<std::string> &bt, int size, int skip = 1);
 std::string BacktraceToString(int size, int skip = 1, const std::string &prefix = "");
 
 uint32_t GetFiberID();
+
+//时间ms
+uint64_t GetCurrentMS();
+uint64_t GetCurrentUS();
 } // namespace sylar
 #endif

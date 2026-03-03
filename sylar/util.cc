@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <execinfo.h>
 #include <sstream>
+#include <sys/time.h>
 #include <unistd.h>
 #include <vector>
 namespace sylar
@@ -51,5 +52,26 @@ uint32_t GetFiberID()
 {
 
     return sylar::Fiber::GetFiberId();
+}
+/**
+ * @brief 获取当前时间戳（毫秒）
+ * @return 从1970-01-01 00:00:00 UTC到此刻的毫秒数
+ */
+uint64_t GetCurrentMS()
+{
+    struct timeval tv;
+    gettimeofday(&tv, NULL);
+    return tv.tv_sec * 1000ul + tv.tv_usec / 1000;
+}
+
+/**
+ * @brief 获取当前时间戳（微秒）
+ * @return 从1970-01-01 00:00:00 UTC到此刻的微秒数
+ */
+uint64_t GetCurrentUS()
+{
+    struct timeval tv;
+    gettimeofday(&tv, NULL);
+    return tv.tv_sec * 1000 * 1000ul + tv.tv_usec;
 }
 } // namespace sylar
