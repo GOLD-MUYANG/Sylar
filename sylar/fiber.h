@@ -17,9 +17,11 @@ public:
     enum State
     {
         INIT,
+        // 阻塞任务，等待读写事件或者定时器到时间
         HOLD,
         EXEC,
         TERM,
+        //等待重新入队
         READY,
         EXCEPT
     };

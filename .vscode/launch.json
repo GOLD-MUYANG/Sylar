@@ -6,7 +6,7 @@
     "configurations": [
         {
             "name": "gcc-9 - 生成和调试活动文件",
-            "type": "cppdbg",
+            "type": "node",
             "request": "launch",
             "program": "${fileDirname}/${fileBasenameNoExtension}",
             /*

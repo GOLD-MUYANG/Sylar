@@ -28,8 +28,8 @@ void test_fiber()
     sockaddr_in addr;
     memset(&addr, 0, sizeof(addr));
     addr.sin_family = AF_INET;
-    addr.sin_port = htons(8080);
-    inet_pton(AF_INET, "183.2.172.177", &addr.sin_addr.s_addr);
+    addr.sin_port = htons(80);
+    inet_pton(AF_INET, "183.2.172.17", &addr.sin_addr.s_addr);
     // connect
     //直接连接成功
     if (!connect(sock, (const struct sockaddr *)&addr, sizeof(addr)))
@@ -88,7 +88,6 @@ void test_timer()
 
 int main(int argc, char **argv)
 {
-    // test1();
-    test_timer();
+    test1();
     return 0;
 }

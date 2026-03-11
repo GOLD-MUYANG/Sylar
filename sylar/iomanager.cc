@@ -208,6 +208,7 @@ bool IOManager::delEvent(int fd, Event event)
     return true;
 }
 
+// 取消事件,不过会把时间先触发一下
 bool IOManager::cancelEvent(int fd, Event event)
 {
     RWMutexType::ReadLock lock(m_mutex);
@@ -399,11 +400,12 @@ void IOManager::idle()
             }
 
             //如果没来实际的IO读写事件，那么不做处理
-            if ((fd_ctx->events & real_events) == NONE)
+            real_events &= fd_ctx->events;
+
+            if (real_events == NONE)
             {
                 continue;
             }
-
             //处理完读写，还剩下的事件，继续加到epoll里去监听
             int left_events = fd_ctx->events & (~real_events);
             int op = left_events ? EPOLL_CTL_MOD : EPOLL_CTL_DEL;

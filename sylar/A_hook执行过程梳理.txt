@@ -1,0 +1,30 @@
+use_caller为ture的情况下：
+
+创建iomanager，初始化scheduler(对当前的线程，协程进行初始化，并绑定run方法)，准备epoll，开启调度（satrt()）
+start (开线程，绑定run)
+
+加入任务（schedule）
+
+iomanager析构，执行schduler的stop方法，Fiber如果判断还不能停止（有任务，有定时器，有活跃线程）,就执行Fiber::call，因为只有m_rootFiber
+
+run（）：
+    拿到当前线程可以执行的任务
+    拿到以后，当前线程更改上下文去执行任务
+    正常执行的，执行完返回了；阻塞的，挂起了，等待idle线程将执行完的任务将阻塞任务设置为reday后重新调度进去
+    触发回调，进入hook sleep
+    sleep():
+        当作任务加入到定时器中（addTimer）
+        当前任务在定时器任务的最前面，就得让idle线程来处理一下(不过得等idle线程起来（也就是任务都加完结果都是阻塞的）)
+            （对于前面有个耗时长的任务，idle起不来，定时器任务没法执行了吗不就）
+    sleep等待执行中，返回到run，继续加任务
+    需要立马执行的任务处理完毕，但是还没有满足停止的条件，那么进入IOManger::idle，
+    idle():
+        找过期的定时器任务，重新调度（schedule()）,
+        看被阻塞的任务是否可以运行了（来了读写事件），也重新调度
+        看其他socket事件，没有需要处理的，返回run
+    run中，定时器任务已经调度进去了，现在定时器任务开始执行。
+    都执行完了，（注意idle是一个while，一直在调用，每次看完有没有新任务，有没有定时器到期，只是swapout，
+        只有满足stopping（）条件，才会真正break掉，然后MainFunc才能走下一步，把idle的状态改成TERM，才能开始退出
+    ）
+    idle又进去了，没任务，idle swapout，再次运行，没任务，判断idle方法返回，run返回
+退出

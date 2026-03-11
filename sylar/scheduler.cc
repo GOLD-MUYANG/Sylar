@@ -1,8 +1,10 @@
 
 #include "scheduler.h"
+#include "hook.h"
 #include "log.h"
 #include "macro.h"
 #include "sylar/fiber.h"
+#include "sylar/hook.h"
 #include "thread.h"
 #include <cstddef>
 #include <functional>
@@ -60,7 +62,6 @@ void Scheduler::idle()
 //之所以要用到调度器线程，最大的考量就是节约一个线程的资源
 Scheduler::Scheduler(size_t threads, bool use_caller, const std::string &name) : m_name(name)
 {
-
     //如果要把运行调度器的线程也算上
     if (use_caller)
     {
@@ -210,6 +211,7 @@ void Scheduler::stop()
 void Scheduler::run()
 {
     SYLAR_LOG_INFO(g_logger) << "Scheduler 的 run 方法执行";
+    set_hook_enable(true);
     // 1、设置当前线程的调度器
     setThis();
     // 2、设置好当前运行线程的协程

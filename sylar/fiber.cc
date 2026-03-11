@@ -71,10 +71,12 @@ Fiber::Fiber(std::function<void()> cb, size_t stacksize, bool use_caller)
     m_ctx.uc_link = nullptr;
     m_ctx.uc_stack.ss_sp = m_stack;
     m_ctx.uc_stack.ss_size = m_stacksize;
+
     if (!use_caller)
     {
         makecontext(&m_ctx, &Fiber::MainFunc, 0);
     }
+    //只有m_rootFiber才用到这个，其他的都是直接创建的一个Fiber对象，use_caller默认为false的
     else
     {
         makecontext(&m_ctx, &Fiber::CallerMainFunc, 0);

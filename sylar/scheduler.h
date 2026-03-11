@@ -134,6 +134,8 @@ private:
 
 private:
     template <class FiberOrCb>
+
+    // 把任务放进要管理的vector里
     bool scheduleNoLock(FiberOrCb fc, int thread)
     {
         bool need_tickle = m_fibers.empty();
