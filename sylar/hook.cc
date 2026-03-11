@@ -131,6 +131,7 @@ static ssize_t do_io(int fd,
     std::shared_ptr<timer_info> tinfo(new timer_info());
     // 4.1 先使用系统调用直接执行，因为大多数socket其实是准备好了的，直接系统调用最快，
     // 你注册进epoll反而是资源浪费，影响性能
+retry:
     ssize_t n = fun(fd, std::forward<Args>(args)...);
     while (n == -1 && errno == EINTR)
     {
@@ -138,7 +139,6 @@ static ssize_t do_io(int fd,
     }
     // 4.2 如果系统调用返回EAGAIN，说明socket还没有准备好，
     // 这时候就需要注册到epoll，等待事件发生，交给调度器管理去了
-retry:
     if (n == -1 && (errno == EAGAIN))
     {
         sylar::IOManager *iom = sylar::IOManager::GetThis();

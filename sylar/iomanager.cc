@@ -297,7 +297,7 @@ IOManager *IOManager::GetThis()
 void IOManager::tickle()
 {
     //当所有的阻塞IO都完成后，才会真正调用tickle，去处理未完成的事件
-    if (hasIdleThreads())
+    if (!hasIdleThreads())
     {
         return;
     }
