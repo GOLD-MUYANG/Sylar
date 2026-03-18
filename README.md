@@ -127,3 +127,10 @@ start (开线程，绑定run)
 7. idle又进去了，没任务，idle swapout，再次运行，没任务，判断idle方法返回，run返回
 
 8. 退出
+
+## 7、address模块
+1. 对IPv4Address和IPv6Address还有UnixAddress进行封装,主要是方便创建，获得掩码等，还有解析地址，获得网卡地址等
+偏向于繁琐而不是技巧
+
+## 8、socket模块
+1、对socket进行封装，主要是方便创建，绑定，监听，接受，发送，接收等操作，基本上就是使用hook的函数去封装起来，方便调用
