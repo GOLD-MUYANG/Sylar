@@ -55,7 +55,7 @@ extern "C"
                                     socklen_t *addrlen);
     extern recvfrom_fun recvfrom_f;
 
-    typedef ssize_t (*recvmsg_fun)(int sockfd, struct mqsghdr *msg, int flags);
+    typedef ssize_t (*recvmsg_fun)(int sockfd, struct msghdr *msg, int flags);
     extern recvmsg_fun recvmsg_f;
 
     // write

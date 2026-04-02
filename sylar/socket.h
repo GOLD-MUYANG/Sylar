@@ -61,7 +61,7 @@ public:
         return setOption(level, option, &value, sizeof(T));
     }
 
-    Socket::ptr accpet();
+    Socket::ptr accept();
 
     bool bind(const Address::ptr addr);
     bool connect(const Address::ptr addr, uint64_t timeout_ms = -1);
@@ -132,6 +132,8 @@ private:
     Address::ptr m_localAddress;
     Address::ptr m_remoteAddress;
 };
+
+std::ostream &operator<<(std::ostream &os, const Socket &addr);
 
 } // namespace sylar
 #endif

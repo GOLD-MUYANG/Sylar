@@ -409,7 +409,7 @@ ssize_t recvfrom(
                  flags, src_addr, addrlen);
 }
 
-ssize_t recvmsg(int sockfd, struct mqsghdr *msg, int flags)
+ssize_t recvmsg(int sockfd, struct msghdr *msg, int flags)
 {
     return do_io(sockfd, recvmsg_f, "recvmsg", sylar::IOManager::READ, SO_RCVTIMEO, msg, flags);
 }

@@ -350,7 +350,7 @@ void IOManager::idle()
             }
             rt = epoll_wait(m_epfd, events, 64, (int)next_timeout);
             // SYLAR_LOG_INFO(g_logger) << "epoll_wait rt=" << rt;
-            if (rt == -1 && errno == EINTR)
+            if (rt < 0 && errno == EINTR)
             {
             }
             //如果真的有事件了，就退出监听，然后去处理数据

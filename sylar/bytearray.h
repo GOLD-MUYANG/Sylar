@@ -122,6 +122,8 @@ public:
     //只读取这一片儿的内容但是不改变内部的position，使得下次还是从那里开始读
     uint64_t getReadBuffers(std::vector<iovec> &buffers, uint64_t len = ~0ull) const;
     uint64_t getReadBuffers(std::vector<iovec> &buffers, uint64_t len, uint64_t position) const;
+    //增加容量，不修改position
+    uint64_t getWriteBuffers(std::vector<iovec> &buffers, uint64_t len);
 
     size_t getSize() const
     {

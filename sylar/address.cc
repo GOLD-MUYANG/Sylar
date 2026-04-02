@@ -271,6 +271,13 @@ std::string Address::toString()
     return ss.str();
 }
 
+std::string Address::toString() const
+{
+    std::stringstream ss;
+    insert(ss);
+    return ss.str();
+}
+
 Address::ptr Address::Create(const sockaddr *addr, socklen_t addrlen)
 {
     if (addr == nullptr)

@@ -263,6 +263,7 @@ void Scheduler::run()
                 is_active = true;
                 break;
             }
+            tickle_me |= it != m_fibers.end();
         }
 
         if (tickle_me)

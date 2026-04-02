@@ -129,7 +129,7 @@ bool Socket::setOption(int level, int option, const void *result, size_t len)
     return true;
 }
 
-Socket::ptr Socket::accpet()
+Socket::ptr Socket::accept()
 {
     Socket::ptr sock(new Socket(m_family, m_type, m_protocol));
     int newsock = ::accept(m_sock, nullptr, nullptr);
@@ -500,6 +500,11 @@ void Socket::initSock()
     {
         setOption(IPPROTO_TCP, TCP_NODELAY, &val);
     }
+}
+
+std::ostream &operator<<(std::ostream &os, const Socket &sock)
+{
+    return sock.dump(os);
 }
 
 } // namespace sylar

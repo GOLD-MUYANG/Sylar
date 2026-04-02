@@ -547,11 +547,15 @@ void ByteArray::read(void *buf, size_t size, size_t position) const
 // 找到position对应的块
 void ByteArray::setPosition(size_t position)
 {
-    if (position > m_size)
+    if (position > m_capacity)
     {
         throw std::out_of_range("想要设置的position大于现在已写入的最大位置");
     }
     m_position = position;
+    if (m_position > m_size)
+    {
+        m_size = m_position;
+    }
     m_cur = m_root;
     while (position > m_cur->size)
     {
@@ -711,6 +715,42 @@ ByteArray::getReadBuffers(std::vector<iovec> &buffers, uint64_t len, uint64_t po
         {
             iov.iov_base = cur->ptr + npos;
             iov.iov_len = ncap;
+            len -= ncap;
+            cur = cur->next;
+            ncap = cur->size;
+            npos = 0;
+        }
+        buffers.push_back(iov);
+    }
+    return size;
+}
+
+uint64_t ByteArray::getWriteBuffers(std::vector<iovec> &buffers, uint64_t len)
+{
+    if (len == 0)
+    {
+        return 0;
+    }
+    addCapacity(len);
+    uint64_t size = len;
+
+    size_t npos = m_position % m_baseSize;
+    size_t ncap = m_cur->size - npos;
+    struct iovec iov;
+    Node *cur = m_cur;
+    while (len > 0)
+    {
+        if (ncap >= len)
+        {
+            iov.iov_base = cur->ptr + npos;
+            iov.iov_len = len;
+            len = 0;
+        }
+        else
+        {
+            iov.iov_base = cur->ptr + npos;
+            iov.iov_len = ncap;
+
             len -= ncap;
             cur = cur->next;
             ncap = cur->size;
