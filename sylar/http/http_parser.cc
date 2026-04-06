@@ -20,6 +20,16 @@ static sylar::ConfigVar<uint64_t>::ptr g_http_request_max_body_size = sylar::Con
 
 static uint64_t s_http_request_buffer_size = 0;
 static uint64_t s_http_request_max_body_size = 0;
+
+uint64_t HttpRequestParser::GetHttpRequestBufferSize()
+{
+    return s_http_request_buffer_size;
+}
+
+uint64_t HttpRequestParser::GetHttpRequestMaxBodySize()
+{
+    return s_http_request_max_body_size;
+}
 struct _RequestSizeIniter
 {
     _RequestSizeIniter()
@@ -134,9 +144,10 @@ uint64_t HttpRequestParser::getContentLength()
 // 1: 成功
 //-1: 有错误
 //>0: 已处理的字节数，且data有效数据为len - v;
+//对data会做处理，将data中没有处理的数据移动到data的起始位置，返回已处理的字节数
 size_t HttpRequestParser::execute(char *data, size_t len)
 {
-    // 返回已成功处理的字节数 offset
+    // offset是已成功处理的字节数
     size_t offset = http_parser_execute(&m_parser, data, len, 0);
     //将缓冲区中未被处理的数据（即 data+offset 到 data+len
     //之间的内容）移动到缓冲区的起始位置，以便下一次调用 execute 时能够继续解析剩余数据
