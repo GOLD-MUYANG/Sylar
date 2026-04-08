@@ -268,6 +268,14 @@ public:
     {
         m_cookies = v;
     }
+    bool isClose() const
+    {
+        return m_close;
+    }
+    void setClose(bool v)
+    {
+        m_close = v;
+    }
 
     //之前的是整个设置，现在的是只针对里面的一个
     std::string getHeader(const std::string &key, const std::string &def = "") const;

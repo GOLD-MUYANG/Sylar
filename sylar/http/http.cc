@@ -23,7 +23,7 @@ HttpMethod StringToHttpMethod(const std::string &m)
 HttpMethod CharsToHttpMethod(const char *m)
 {
 #define XX(num, name, string)                                                                      \
-    if (strcmp(#string, m) == 0)                                                                   \
+    if (strncmp(#string, m, strlen(#string)) == 0)                                                 \
     {                                                                                              \
         return HttpMethod::name;                                                                   \
     }
@@ -251,7 +251,7 @@ std::ostream &HttpResponse::dump(std::ostream &os) const
     os << "connection: " << (m_close ? "close" : "keep-alive") << "\r\n";
     if (!m_body.empty())
     {
-        os << "content-length: " << m_body.size() << "\r\n\r\n";
+        os << "content-length: " << m_body.size() << "\r\n\r\n" << m_body;
     }
     else
     {

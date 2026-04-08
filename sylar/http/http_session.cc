@@ -84,6 +84,7 @@ int HttpSession::sendResponse(HttpResponse::ptr rsp)
     std::stringstream ss;
     ss << *rsp;
     std::string data = ss.str();
+    std::cout << "sendResponse:" << data << std::endl;
     return writeFixSize(data.c_str(), data.size());
 }
 
