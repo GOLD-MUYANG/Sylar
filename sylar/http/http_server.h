@@ -2,6 +2,7 @@
 #define __SYLAR_HTTP_HTTP_SERVER_H__
 
 #include "http_session.h"
+#include "servlet.h"
 #include "sylar/tcp_server.h"
 
 namespace sylar
@@ -16,12 +17,17 @@ public:
     HttpServer(bool keepalive = false,
                sylar::IOManager *worker = sylar::IOManager::GetThis(),
                sylar::IOManager *accept_worker = sylar::IOManager::GetThis());
+    ServletDispatch::ptr getServletDispatch() const
+    {
+        return m_dispatch;
+    }
 
 protected:
     virtual void handleClient(Socket::ptr client) override;
 
 private:
     bool m_isKeepalive;
+    ServletDispatch::ptr m_dispatch;
 };
 
 } // namespace http

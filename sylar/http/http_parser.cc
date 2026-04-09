@@ -30,6 +30,8 @@ uint64_t HttpRequestParser::GetHttpRequestMaxBodySize()
 {
     return s_http_request_max_body_size;
 }
+namespace
+{
 struct _RequestSizeIniter
 {
     _RequestSizeIniter()
@@ -44,6 +46,7 @@ struct _RequestSizeIniter
                                                   { s_http_request_max_body_size = nv; });
     }
 };
+} // namespace
 
 static _RequestSizeIniter _init;
 

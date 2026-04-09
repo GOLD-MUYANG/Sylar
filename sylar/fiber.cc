@@ -149,7 +149,7 @@ void Fiber::MainFunc()
 {
     Fiber::ptr cur = GetThis();
     SYLAR_ASSERT(cur);
-    try
+    // try
     {
         cur->m_cb();
         //协程执行回调是一次性的，执行完毕后状态变为TERM，继续持有回调函数
@@ -157,20 +157,20 @@ void Fiber::MainFunc()
         cur->m_cb = nullptr;
         cur->m_state = TERM;
     }
-    catch (std::exception &e)
-    {
-        cur->m_state = EXCEPT;
-        SYLAR_LOG_ERROR(SYLAR_LOG_ROOT())
-            << "Fiber Except: " << e.what() << " fiber_id=" << cur->getId()
-            << sylar::BacktraceToString(10, 2);
-    }
-    catch (...)
-    {
-        cur->m_state = EXCEPT;
-        SYLAR_LOG_ERROR(g_logger) << "Fiber Except"
-                                  << " fiber_id=" << cur->getId() << std::endl
-                                  << sylar::BacktraceToString(10, 2);
-    }
+    // catch (std::exception &e)
+    // {
+    //     cur->m_state = EXCEPT;
+    //     SYLAR_LOG_ERROR(SYLAR_LOG_ROOT())
+    //         << "Fiber Except: " << e.what() << " fiber_id=" << cur->getId()
+    //         << sylar::BacktraceToString(10, 2);
+    // }
+    // catch (...)
+    // {
+    //     cur->m_state = EXCEPT;
+    //     SYLAR_LOG_ERROR(g_logger) << "Fiber Except"
+    //                               << " fiber_id=" << cur->getId() << std::endl
+    //                               << sylar::BacktraceToString(10, 2);
+    // }
     //如果不用一个普通指针的话，就会造成能跳到主协程但是没办法释放子协程智能指针，
     //或者能释放但跳转不了，所以下面的写法是必要的
     auto raw_ptr = cur.get();
