@@ -505,7 +505,7 @@ void ByteArray::read(void *buf, size_t size)
 
 void ByteArray::read(void *buf, size_t size, size_t position) const
 {
-    if (size > getReadSize())
+    if (size > (m_size - position))
     {
         throw std::out_of_range("尝试读取，但是想读的太多，实际没那么多");
     }

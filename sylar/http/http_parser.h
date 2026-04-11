@@ -48,7 +48,7 @@ class HttpResponseParser
 public:
     typedef std::shared_ptr<HttpResponseParser> ptr;
     HttpResponseParser();
-    size_t execute(char *data, size_t len);
+    size_t execute(char *data, size_t len, bool chunck);
     int isFinished();
     int hasError();
 
@@ -62,6 +62,14 @@ public:
     }
 
     uint64_t getContentLength();
+    const httpclient_parser &getParser() const
+    {
+        return m_parser;
+    }
+
+public:
+    static uint64_t GetHttpResponseBufferSize();
+    static uint64_t GetHttpResponseMaxBodySize();
 
 private:
     httpclient_parser m_parser;

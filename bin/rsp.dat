@@ -1,0 +1,10 @@
+HTTP/1.1 200 OK
+content-length: 65
+Server: sylar/1.0.0
+connection: close
+content-length: 65
+
+GET /sylar/xx HTTP/1.1
+connection: close
+host:www.sylar.top
+

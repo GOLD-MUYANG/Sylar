@@ -27,6 +27,7 @@ HttpRequest::ptr HttpSession::recvRequest()
         int len = read(data + offset, buff_size - offset);
         if (len <= 0)
         {
+            close();
             return nullptr;
         }
         //表示当前的缓冲区有多少有效字节
@@ -35,12 +36,14 @@ HttpRequest::ptr HttpSession::recvRequest()
         size_t nparse = parser->execute(data, len);
         if (parser->hasError())
         {
+            close();
             return nullptr;
         }
         // 更新剩余未解析的数据长度
         offset = len - nparse;
         if (offset == (int)buff_size)
         {
+            close();
             return nullptr;
         }
         if (parser->isFinished())
@@ -54,23 +57,28 @@ HttpRequest::ptr HttpSession::recvRequest()
     {
         // 1、前面不停地读，本来是想解析头的，但是可能把body也多读出来了，所以先判断是不是有，然后把多读的先写进body变量里
         std::string body;
-        body.reserve(length);
-
+        body.resize(length);
+        int len = 0;
         if (length >= offset)
         {
-            body.append(data, offset);
+            // body.append(data, offset);
+            memcpy(&body[0], data, offset);
+            len = offset;
         }
         else
         {
-            body.append(data, length);
+            // body.append(data, length);
+            memcpy(&body[0], data, length);
+            len = length;
         }
 
         length -= offset;
         // 2、如果body还有数据，继续读,这次就是全读出来了（内部有while）
         if (length > 0)
         {
-            if (readFixSize(&body[body.size()], length) <= 0)
+            if (readFixSize(&body[len], length) <= 0)
             {
+                close();
                 return nullptr;
             }
         }

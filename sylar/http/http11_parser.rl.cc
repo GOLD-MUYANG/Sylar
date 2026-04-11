@@ -91,8 +91,6 @@ int http_parser_init(http_parser *parser) {
 size_t http_parser_execute(http_parser *parser, const char *buffer, size_t len, size_t off)  
 {
   if(len == 0) return 0;
-  parser->nread = 0;
-
 
   const char *p, *pe;
   int cs = parser->cs;
@@ -105,7 +103,7 @@ size_t http_parser_execute(http_parser *parser, const char *buffer, size_t len, 
   assert(pe - p == (int)len - (int)off && "pointers aren't same distance");
 
   
-#line 109 "/home/muyang/workspace/sylar/sylar/http/http11_parser.rl.cc"
+#line 107 "/home/muyang/workspace/sylar/sylar/http/http11_parser.rl.cc"
 	{
 	short _widec;
 	if ( p == pe )
@@ -134,7 +132,7 @@ st2:
 	if ( ++p == pe )
 		goto _test_eof2;
 case 2:
-#line 138 "/home/muyang/workspace/sylar/sylar/http/http11_parser.rl.cc"
+#line 136 "/home/muyang/workspace/sylar/sylar/http/http11_parser.rl.cc"
 	if ( (*p) == 32 )
 		goto tr4;
 	if ( (*p) > 57 ) {
@@ -154,7 +152,7 @@ st3:
 	if ( ++p == pe )
 		goto _test_eof3;
 case 3:
-#line 158 "/home/muyang/workspace/sylar/sylar/http/http11_parser.rl.cc"
+#line 156 "/home/muyang/workspace/sylar/sylar/http/http11_parser.rl.cc"
 	_widec = (*p);
 	if ( (*p) < 123 ) {
 		if ( 94 <= (*p) && (*p) <= 94 ) {
@@ -273,7 +271,7 @@ st4:
 	if ( ++p == pe )
 		goto _test_eof4;
 case 4:
-#line 277 "/home/muyang/workspace/sylar/sylar/http/http11_parser.rl.cc"
+#line 275 "/home/muyang/workspace/sylar/sylar/http/http11_parser.rl.cc"
 	if ( (*p) == 72 )
 		goto tr13;
 	goto st0;
@@ -285,7 +283,7 @@ st5:
 	if ( ++p == pe )
 		goto _test_eof5;
 case 5:
-#line 289 "/home/muyang/workspace/sylar/sylar/http/http11_parser.rl.cc"
+#line 287 "/home/muyang/workspace/sylar/sylar/http/http11_parser.rl.cc"
 	if ( (*p) == 84 )
 		goto st6;
 	goto st0;
@@ -369,7 +367,7 @@ st13:
 	if ( ++p == pe )
 		goto _test_eof13;
 case 13:
-#line 373 "/home/muyang/workspace/sylar/sylar/http/http11_parser.rl.cc"
+#line 371 "/home/muyang/workspace/sylar/sylar/http/http11_parser.rl.cc"
 	switch( (*p) ) {
 		case 10: goto tr24;
 		case 13: goto tr25;
@@ -409,7 +407,7 @@ st14:
 	if ( ++p == pe )
 		goto _test_eof14;
 case 14:
-#line 413 "/home/muyang/workspace/sylar/sylar/http/http11_parser.rl.cc"
+#line 411 "/home/muyang/workspace/sylar/sylar/http/http11_parser.rl.cc"
 	switch( (*p) ) {
 		case 33: goto st14;
 		case 58: goto tr27;
@@ -454,7 +452,7 @@ st15:
 	if ( ++p == pe )
 		goto _test_eof15;
 case 15:
-#line 458 "/home/muyang/workspace/sylar/sylar/http/http11_parser.rl.cc"
+#line 456 "/home/muyang/workspace/sylar/sylar/http/http11_parser.rl.cc"
 	switch( (*p) ) {
 		case 0: goto st0;
 		case 9: goto tr29;
@@ -472,7 +470,7 @@ st16:
 	if ( ++p == pe )
 		goto _test_eof16;
 case 16:
-#line 476 "/home/muyang/workspace/sylar/sylar/http/http11_parser.rl.cc"
+#line 474 "/home/muyang/workspace/sylar/sylar/http/http11_parser.rl.cc"
 	switch( (*p) ) {
 		case 0: goto st0;
 		case 10: goto tr33;
@@ -509,7 +507,7 @@ st17:
 	if ( ++p == pe )
 		goto _test_eof17;
 case 17:
-#line 513 "/home/muyang/workspace/sylar/sylar/http/http11_parser.rl.cc"
+#line 511 "/home/muyang/workspace/sylar/sylar/http/http11_parser.rl.cc"
 	if ( (*p) == 10 )
 		goto st13;
 	goto st0;
@@ -553,7 +551,7 @@ st348:
 	if ( ++p == pe )
 		goto _test_eof348;
 case 348:
-#line 557 "/home/muyang/workspace/sylar/sylar/http/http11_parser.rl.cc"
+#line 555 "/home/muyang/workspace/sylar/sylar/http/http11_parser.rl.cc"
 	switch( (*p) ) {
 		case 33: goto st14;
 		case 58: goto tr27;
@@ -592,7 +590,7 @@ st18:
 	if ( ++p == pe )
 		goto _test_eof18;
 case 18:
-#line 596 "/home/muyang/workspace/sylar/sylar/http/http11_parser.rl.cc"
+#line 594 "/home/muyang/workspace/sylar/sylar/http/http11_parser.rl.cc"
 	switch( (*p) ) {
 		case 10: goto tr36;
 		case 33: goto st14;
@@ -632,7 +630,7 @@ st19:
 	if ( ++p == pe )
 		goto _test_eof19;
 case 19:
-#line 636 "/home/muyang/workspace/sylar/sylar/http/http11_parser.rl.cc"
+#line 634 "/home/muyang/workspace/sylar/sylar/http/http11_parser.rl.cc"
 	_widec = (*p);
 	if ( (*p) < 123 ) {
 		if ( 94 <= (*p) && (*p) <= 94 ) {
@@ -734,7 +732,7 @@ st20:
 	if ( ++p == pe )
 		goto _test_eof20;
 case 20:
-#line 738 "/home/muyang/workspace/sylar/sylar/http/http11_parser.rl.cc"
+#line 736 "/home/muyang/workspace/sylar/sylar/http/http11_parser.rl.cc"
 	_widec = (*p);
 	if ( (*p) < 123 ) {
 		if ( 94 <= (*p) && (*p) <= 94 ) {
@@ -784,7 +782,7 @@ st21:
 	if ( ++p == pe )
 		goto _test_eof21;
 case 21:
-#line 788 "/home/muyang/workspace/sylar/sylar/http/http11_parser.rl.cc"
+#line 786 "/home/muyang/workspace/sylar/sylar/http/http11_parser.rl.cc"
 	_widec = (*p);
 	if ( (*p) < 123 ) {
 		if ( 94 <= (*p) && (*p) <= 94 ) {
@@ -834,7 +832,7 @@ st22:
 	if ( ++p == pe )
 		goto _test_eof22;
 case 22:
-#line 838 "/home/muyang/workspace/sylar/sylar/http/http11_parser.rl.cc"
+#line 836 "/home/muyang/workspace/sylar/sylar/http/http11_parser.rl.cc"
 	if ( (*p) < 65 ) {
 		if ( 48 <= (*p) && (*p) <= 57 )
 			goto st23;
@@ -865,7 +863,7 @@ st24:
 	if ( ++p == pe )
 		goto _test_eof24;
 case 24:
-#line 869 "/home/muyang/workspace/sylar/sylar/http/http11_parser.rl.cc"
+#line 867 "/home/muyang/workspace/sylar/sylar/http/http11_parser.rl.cc"
 	if ( (*p) < 65 ) {
 		if ( 48 <= (*p) && (*p) <= 57 )
 			goto st25;
@@ -896,7 +894,7 @@ st26:
 	if ( ++p == pe )
 		goto _test_eof26;
 case 26:
-#line 900 "/home/muyang/workspace/sylar/sylar/http/http11_parser.rl.cc"
+#line 898 "/home/muyang/workspace/sylar/sylar/http/http11_parser.rl.cc"
 	_widec = (*p);
 	if ( (*p) < 123 ) {
 		if ( 94 <= (*p) && (*p) <= 94 ) {
@@ -948,7 +946,7 @@ st27:
 	if ( ++p == pe )
 		goto _test_eof27;
 case 27:
-#line 952 "/home/muyang/workspace/sylar/sylar/http/http11_parser.rl.cc"
+#line 950 "/home/muyang/workspace/sylar/sylar/http/http11_parser.rl.cc"
 	if ( (*p) < 65 ) {
 		if ( 48 <= (*p) && (*p) <= 57 )
 			goto st28;
@@ -991,7 +989,7 @@ st29:
 	if ( ++p == pe )
 		goto _test_eof29;
 case 29:
-#line 995 "/home/muyang/workspace/sylar/sylar/http/http11_parser.rl.cc"
+#line 993 "/home/muyang/workspace/sylar/sylar/http/http11_parser.rl.cc"
 	_widec = (*p);
 	if ( (*p) < 123 ) {
 		if ( 94 <= (*p) && (*p) <= 94 ) {
@@ -1042,7 +1040,7 @@ st30:
 	if ( ++p == pe )
 		goto _test_eof30;
 case 30:
-#line 1046 "/home/muyang/workspace/sylar/sylar/http/http11_parser.rl.cc"
+#line 1044 "/home/muyang/workspace/sylar/sylar/http/http11_parser.rl.cc"
 	_widec = (*p);
 	if ( (*p) < 123 ) {
 		if ( 94 <= (*p) && (*p) <= 94 ) {
@@ -1093,7 +1091,7 @@ st31:
 	if ( ++p == pe )
 		goto _test_eof31;
 case 31:
-#line 1097 "/home/muyang/workspace/sylar/sylar/http/http11_parser.rl.cc"
+#line 1095 "/home/muyang/workspace/sylar/sylar/http/http11_parser.rl.cc"
 	if ( (*p) < 65 ) {
 		if ( 48 <= (*p) && (*p) <= 57 )
 			goto st32;
@@ -1124,7 +1122,7 @@ st33:
 	if ( ++p == pe )
 		goto _test_eof33;
 case 33:
-#line 1128 "/home/muyang/workspace/sylar/sylar/http/http11_parser.rl.cc"
+#line 1126 "/home/muyang/workspace/sylar/sylar/http/http11_parser.rl.cc"
 	_widec = (*p);
 	if ( (*p) < 123 ) {
 		if ( 94 <= (*p) && (*p) <= 94 ) {
@@ -3372,7 +3370,7 @@ st173:
 	if ( ++p == pe )
 		goto _test_eof173;
 case 173:
-#line 3376 "/home/muyang/workspace/sylar/sylar/http/http11_parser.rl.cc"
+#line 3374 "/home/muyang/workspace/sylar/sylar/http/http11_parser.rl.cc"
 	_widec = (*p);
 	if ( (*p) < 123 ) {
 		if ( 94 <= (*p) && (*p) <= 94 ) {
@@ -3703,7 +3701,7 @@ st194:
 	if ( ++p == pe )
 		goto _test_eof194;
 case 194:
-#line 3707 "/home/muyang/workspace/sylar/sylar/http/http11_parser.rl.cc"
+#line 3705 "/home/muyang/workspace/sylar/sylar/http/http11_parser.rl.cc"
 	if ( (*p) < 48 ) {
 		if ( 45 <= (*p) && (*p) <= 46 )
 			goto st195;
@@ -3748,7 +3746,7 @@ st196:
 	if ( ++p == pe )
 		goto _test_eof196;
 case 196:
-#line 3752 "/home/muyang/workspace/sylar/sylar/http/http11_parser.rl.cc"
+#line 3750 "/home/muyang/workspace/sylar/sylar/http/http11_parser.rl.cc"
 	if ( (*p) == 62 )
 		goto st197;
 	goto st196;
@@ -3807,7 +3805,7 @@ st349:
 	if ( ++p == pe )
 		goto _test_eof349;
 case 349:
-#line 3811 "/home/muyang/workspace/sylar/sylar/http/http11_parser.rl.cc"
+#line 3809 "/home/muyang/workspace/sylar/sylar/http/http11_parser.rl.cc"
 	goto st0;
 tr3:
 #line 53 "/home/muyang/workspace/sylar/sylar/http/http11_parser.rl"
@@ -3817,7 +3815,7 @@ st198:
 	if ( ++p == pe )
 		goto _test_eof198;
 case 198:
-#line 3821 "/home/muyang/workspace/sylar/sylar/http/http11_parser.rl.cc"
+#line 3819 "/home/muyang/workspace/sylar/sylar/http/http11_parser.rl.cc"
 	_widec = (*p);
 	if ( (*p) < 123 ) {
 		if ( 94 <= (*p) && (*p) <= 94 ) {
@@ -3872,7 +3870,7 @@ st199:
 	if ( ++p == pe )
 		goto _test_eof199;
 case 199:
-#line 3876 "/home/muyang/workspace/sylar/sylar/http/http11_parser.rl.cc"
+#line 3874 "/home/muyang/workspace/sylar/sylar/http/http11_parser.rl.cc"
 	if ( (*p) == 123 )
 		goto tr232;
 	goto st0;
@@ -3884,7 +3882,7 @@ st200:
 	if ( ++p == pe )
 		goto _test_eof200;
 case 200:
-#line 3888 "/home/muyang/workspace/sylar/sylar/http/http11_parser.rl.cc"
+#line 3886 "/home/muyang/workspace/sylar/sylar/http/http11_parser.rl.cc"
 	if ( (*p) == 125 )
 		goto st201;
 	goto st200;
@@ -6622,7 +6620,7 @@ case 347:
 	_out: {}
 	}
 
-#line 295 "/home/muyang/workspace/sylar/sylar/http/http11_parser.rl"
+#line 293 "/home/muyang/workspace/sylar/sylar/http/http11_parser.rl"
 
   assert(p <= pe && "Buffer overflow after parsing.");
 
