@@ -189,6 +189,10 @@ void TimerManager::listExpiredCb(std::vector<std::function<void()>> &cbs)
         }
     }
     RWMutexType::WriteLock lock(m_mutex);
+    if (m_timers.empty())
+    {
+        return;
+    }
     // 仅仅用于判断 m_timers里的定时器是否过期，用来比较的
     uint64_t now_ms = GetCurrentMS();
     // 检测是否发生了时钟回拨

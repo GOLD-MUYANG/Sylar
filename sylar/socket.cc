@@ -105,28 +105,33 @@ void Socket::setRecvTimeOut(int64_t v)
     setOption(SOL_SOCKET, SO_RCVTIMEO, tv);
 }
 
-bool Socket::getOption(int level, int option, void *optval, size_t *optlen)
+bool Socket::getOption(int level, int option, void *result, socklen_t *len)
 {
-    int rt = getsockopt(m_sock, level, option, optval, (socklen_t *)optlen);
-    if (rt)
-    {
-        SYLAR_LOG_DEBUG(g_logger) << "getoption sock" << m_sock << " level = " << level
-                                  << "option = " << option << " errno=" << errno
-                                  << "errstr = " << strerror(errno);
-    }
-    return false;
-}
 
-bool Socket::setOption(int level, int option, const void *result, size_t len)
-{
-    if (setsockopt(m_sock, level, option, result, (socklen_t)len))
     {
-        SYLAR_LOG_DEBUG(g_logger) << "setOption sock=" << m_sock << " level=" << level
-                                  << " option=" << option << " errno=" << errno
-                                  << " errstr=" << strerror(errno);
+        int rt = getsockopt(m_sock, level, option, result, (socklen_t *)len);
+        if (rt)
+        {
+            SYLAR_LOG_DEBUG(g_logger)
+                << "getoption sock" << m_sock << " level = " << level << "option = " << option
+                << " errno=" << errno << "errstr = " << strerror(errno);
+        }
         return false;
     }
-    return true;
+}
+
+bool Socket::setOption(int level, int option, const void *result, socklen_t len)
+{
+    {
+        if (setsockopt(m_sock, level, option, result, (socklen_t)len))
+        {
+            SYLAR_LOG_DEBUG(g_logger)
+                << "setOption sock=" << m_sock << " level=" << level << " option=" << option
+                << " errno=" << errno << " errstr=" << strerror(errno);
+            return false;
+        }
+        return true;
+    }
 }
 
 Socket::ptr Socket::accept()
@@ -421,7 +426,7 @@ bool Socket::isValid() const
 int Socket::getError()
 {
     int error = 0;
-    size_t len = sizeof(error);
+    socklen_t len = sizeof(error);
     if (!getOption(SOL_SOCKET, SO_ERROR, &error, &len))
     {
         return -1;

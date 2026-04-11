@@ -19,7 +19,8 @@ static thread_local Scheduler *t_scheduler = nullptr;
 // 协程，调度器线程的协程是m_rootFiber)
 //当来一个任务时，要切换上下文了，记录好现在的协程，等任务执行完了，再切换回来
 //之所以要存，是因为可以理解为任务队列里的协程随用随释放，根本不用回去
-static thread_local Fiber *t_fiber = nullptr;
+// static thread_local Fiber *t_fiber = nullptr;
+static thread_local Fiber *t_scheduler_fiber = nullptr;
 
 void Scheduler::setThis()
 {
@@ -33,7 +34,7 @@ Scheduler *Scheduler::GetThis()
 
 Fiber *Scheduler::GetMainFiber()
 {
-    return t_fiber;
+    return t_scheduler_fiber;
 }
 
 bool Scheduler::stopping()
@@ -82,7 +83,7 @@ Scheduler::Scheduler(size_t threads, bool use_caller, const std::string &name) :
         // 3.2 设置当前线程的子协程
         m_rootFiber.reset(new Fiber(std::bind(&Scheduler::run, this), 0, true));
         // 3.3 设置当前线程的正在执行任务的协程是哪一个
-        t_fiber = m_rootFiber.get();
+        t_scheduler_fiber = m_rootFiber.get();
     }
     else
     {
@@ -217,7 +218,7 @@ void Scheduler::run()
     // 2、设置好当前运行线程的协程
     if (sylar::GetThreadId() != m_rootThread)
     {
-        t_fiber = Fiber::GetThis().get();
+        t_scheduler_fiber = Fiber::GetThis().get();
     }
     // 3、线程生命周期结束前，始终去查看是否有任务并消费
     // 用来存放当前线程所需要执行的协程或回调函数

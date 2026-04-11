@@ -4,6 +4,9 @@
 #include "address.h"
 #include "noncopyable.h"
 #include <memory>
+#include <netinet/tcp.h>
+#include <sys/socket.h>
+#include <sys/types.h>
 namespace sylar
 {
 class Socket
@@ -46,7 +49,7 @@ public:
     int64_t getRecvTimeOut() const;
     void setRecvTimeOut(int64_t v);
 
-    bool getOption(int level, int optname, void *optval, size_t *optlen);
+    bool getOption(int level, int option, void *result, socklen_t *len);
     template <class T>
     bool getOption(int level, int optname, T &result)
     {
@@ -54,7 +57,7 @@ public:
         return getOption(level, optname, &result, &length);
     }
 
-    bool setOption(int level, int option, const void *result, size_t len);
+    bool setOption(int level, int option, const void *result, socklen_t len);
     template <class T>
     bool setOption(int level, int option, const T &value)
     {
