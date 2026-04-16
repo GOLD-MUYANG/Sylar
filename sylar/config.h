@@ -31,11 +31,19 @@ public:
         std::transform(m_name.begin(), m_name.end(), m_name.begin(), ::tolower);
     }
 
-    virtual ~ConfigVarBase() {}
+    virtual ~ConfigVarBase()
+    {
+    }
 
-    const std::string &getName() const { return m_name; }
+    const std::string &getName() const
+    {
+        return m_name;
+    }
 
-    const std::string &getDescription() const { return m_description; }
+    const std::string &getDescription() const
+    {
+        return m_description;
+    }
 
     virtual std::string toString() = 0;
     virtual bool fromString(const std::string &val) = 0;
@@ -52,7 +60,10 @@ template <class F, class T>
 class LexicalCast
 {
 public:
-    T operator()(const F &v) const { return boost::lexical_cast<T>(v); }
+    T operator()(const F &v) const
+    {
+        return boost::lexical_cast<T>(v);
+    }
 };
 
 //其他类型的偏特化
@@ -348,7 +359,10 @@ public:
         RWMutexType::WriteLock lock(m_mutex);
         m_val = v;
     }
-    std::string getTypeName() const override { return typeid(T).name(); }
+    std::string getTypeName() const override
+    {
+        return typeid(T).name();
+    }
 
     uint64_t addListener(on_change_cb cb)
     {
@@ -445,6 +459,11 @@ public:
     static ConfigVarBase::ptr LookupBase(const std::string &name);
 
     static void Visit(std::function<void(ConfigVarBase::ptr)> cb);
+
+    /**
+     * @brief 加载path文件夹里面的配置文件
+     */
+    static void LoadFromConfDir(const std::string &path);
 
 private:
     static ConfigVarMap &GetDatas()

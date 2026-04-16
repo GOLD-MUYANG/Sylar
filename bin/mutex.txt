@@ -1,0 +1,2 @@
+2026-04-16 21:54:37	LoadConfFile file=/home/muyang/workspace/sylar/bin/conf/log2.yml ok
+2026-04-16 21:54:37	on_logger_conf_changed
