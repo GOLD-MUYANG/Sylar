@@ -203,7 +203,7 @@ int Application::main(int argc, char **argv)
     }
 
     // 创建 IOManager 调度器，1 个线程
-    sylar::IOManager iom(1);
+    sylar::IOManager iom(4);
     iom.schedule(std::bind(&Application::run_fiber, this)); // 调度 run_fiber 协程
     iom.stop();                                             // 等待调度器完成
     return 0;
@@ -256,6 +256,26 @@ int Application::run_fiber()
 
         // 创建 HTTP 服务器实例
         sylar::http::HttpServer::ptr server(new sylar::http::HttpServer(i.keepalive));
+        auto sd = server->getServletDispatch();
+#define XX(...) #__VA_ARGS__
+        sd->addServlet("/sylarx/xx",
+                       [](sylar::http::HttpRequest::ptr req, sylar::http::HttpResponse::ptr rsp,
+                          sylar::http::HttpSession::ptr session)
+                       {
+                           rsp->setBody(
+                               XX(<html><head><title> 404 Not Found</ title></ head><body><center>
+                                          <h1> 404 Not Found</ h1></ center><hr><center> nginx /
+                                          1.16.0 <
+                                      / center > </ body></ html> < !--a padding to disable MSIE and
+                                  Chrome friendly error page-- > < !--a padding to disable MSIE and
+                                  Chrome friendly error page-- > < !--a padding to disable MSIE and
+                                  Chrome friendly error page-- > < !--a padding to disable MSIE and
+                                  Chrome friendly error page-- > < !--a padding to disable MSIE and
+                                  Chrome friendly error page-- > < !--a padding to disable MSIE and
+                                  Chrome friendly error page-- >));
+                           return 0;
+                       });
+
         std::vector<Address::ptr> fails;
         if (!server->bind(address, fails)) // 绑定地址
         {

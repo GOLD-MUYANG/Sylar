@@ -3,10 +3,12 @@ project(sylar)
 
 include (cmake/utils.cmake)
 
-set(CMAKE_BUILD_TYPE "Debug") #生成可以debug的可执行文件
 set(CMAKE_VERBOSE_MAKEFILE ON)
-set(CMAKE_CXX_FLAGS "$ENV{CXXFLAGS} -rdynamic -O0 -ggdb -std=c++11 -Wall -Wno-deprecated -Werror -Wno-unused-function -Wno-builtin-macro-redefined")
+# set(CMAKE_BUILD_TYPE "Debug") #生成可以debug的可执行文件
+# set(CMAKE_CXX_FLAGS "$ENV{CXXFLAGS} -rdynamic -O0 -ggdb -std=c++11 -Wall -Wno-deprecated -Werror -Wno-unused-function -Wno-builtin-macro-redefined")
 
+set(CMAKE_BUILD_TYPE "Release")
+set(CMAKE_CXX_FLAGS "$ENV{CXXFLAGS} -rdynamic -O3 -DNDEBUG -std=c++11 -Wall -Wno-deprecated -Wno-unused-function -Wno-builtin-macro-redefined")
 include_directories(.)
 set(LIB_SRC
     sylar/log.cc
@@ -56,25 +58,25 @@ set(LIBS
         pthread
         yaml-cpp)
 
-sylar_add_executable(test1 "tests/test.cc" sylar "${LIBS}")
-sylar_add_executable(test_config "tests/test_config.cc" sylar "${LIBS}")
-sylar_add_executable(test_thread "tests/test_thread.cc" sylar "${LIBS}")
-sylar_add_executable(test_util "tests/test_util.cc" sylar "${LIBS}")
-sylar_add_executable(test_fiber "tests/test_fiber.cc" sylar "${LIBS}")
-sylar_add_executable(test_scheduler "tests/test_scheduler.cc" sylar "${LIBS}")
-sylar_add_executable(test_iomanager "tests/test_iomanager.cc" sylar "${LIBS}")
-sylar_add_executable(test_hook "tests/test_hook.cc" sylar "${LIBS}")
-sylar_add_executable(test_address "tests/test_address.cc" sylar "${LIBS}")
-sylar_add_executable(test_socket "tests/test_socket.cc" sylar "${LIBS}")
-sylar_add_executable(test_bytearray "tests/test_bytearray.cc" sylar "${LIBS}")
-sylar_add_executable(test_http "tests/test_http.cc" sylar "${LIBS}")
-sylar_add_executable(test_http_parser "tests/test_http_parser.cc" sylar "${LIBS}")
-sylar_add_executable(test_tcp_server "tests/test_tcp_server.cc" sylar "${LIBS}")
-sylar_add_executable(echo_server "examples/echo_server.cc" sylar "${LIBS}")
+# sylar_add_executable(test1 "tests/test.cc" sylar "${LIBS}")
+# sylar_add_executable(test_config "tests/test_config.cc" sylar "${LIBS}")
+# sylar_add_executable(test_thread "tests/test_thread.cc" sylar "${LIBS}")
+# sylar_add_executable(test_util "tests/test_util.cc" sylar "${LIBS}")
+# sylar_add_executable(test_fiber "tests/test_fiber.cc" sylar "${LIBS}")
+# sylar_add_executable(test_scheduler "tests/test_scheduler.cc" sylar "${LIBS}")
+# sylar_add_executable(test_iomanager "tests/test_iomanager.cc" sylar "${LIBS}")
+# sylar_add_executable(test_hook "tests/test_hook.cc" sylar "${LIBS}")
+# sylar_add_executable(test_address "tests/test_address.cc" sylar "${LIBS}")
+# sylar_add_executable(test_socket "tests/test_socket.cc" sylar "${LIBS}")
+# sylar_add_executable(test_bytearray "tests/test_bytearray.cc" sylar "${LIBS}")
+# sylar_add_executable(test_http "tests/test_http.cc" sylar "${LIBS}")
+# sylar_add_executable(test_http_parser "tests/test_http_parser.cc" sylar "${LIBS}")
+# sylar_add_executable(test_tcp_server "tests/test_tcp_server.cc" sylar "${LIBS}")
+# sylar_add_executable(echo_server "examples/echo_server.cc" sylar "${LIBS}")
 sylar_add_executable(test_http_server "tests/test_http_server.cc" sylar "${LIBS}")
-sylar_add_executable(test_http_connection "tests/test_http_connection.cc" sylar "${LIBS}")
-sylar_add_executable(test_uri "tests/test_uri.cc" sylar "${LIBS}")
-sylar_add_executable(test_daemon "tests/test_daemon.cc" sylar "${LIBS}")
+# sylar_add_executable(test_http_connection "tests/test_http_connection.cc" sylar "${LIBS}")
+# sylar_add_executable(test_uri "tests/test_uri.cc" sylar "${LIBS}")
+# sylar_add_executable(test_daemon "tests/test_daemon.cc" sylar "${LIBS}")
 sylar_add_executable(test_application "tests/test_application.cc" sylar "${LIBS}")
 
 

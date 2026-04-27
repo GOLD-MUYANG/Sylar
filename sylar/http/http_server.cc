@@ -17,7 +17,7 @@ HttpServer::HttpServer(bool keepalive, sylar::IOManager *worker, sylar::IOManage
 void HttpServer::handleClient(Socket::ptr client)
 {
     HttpSession::ptr session(new HttpSession(client));
-    SYLAR_LOG_INFO(g_logger) << "成功连接上一个客户端" << *client;
+    // SYLAR_LOG_INFO(g_logger) << "成功连接上一个客户端" << *client;
     do
     {
         auto req = session->recvRequest();
@@ -38,7 +38,16 @@ void HttpServer::handleClient(Socket::ptr client)
         //            << *req;
         //        SYLAR_LOG_INFO(g_logger) << "response:" << std::endl
         //            << *rsp;
-        session->sendResponse(rsp);
+        int rt = session->sendResponse(rsp);
+        if (rt <= 0)
+        {
+            break;
+        }
+
+        if (!m_isKeepalive || req->isClose() || rsp->isClose())
+        {
+            break;
+        }
     } while (m_isKeepalive);
     session->close();
 }

@@ -3,21 +3,24 @@
 #include "sylar/log.h"
 
 static sylar::Logger::ptr g_logger = SYLAR_LOG_ROOT();
-
+#define XX(...) #__VA_ARGS__
 void run()
 {
-    sylar::http::HttpServer::ptr server(new sylar::http::HttpServer);
+    sylar::http::HttpServer::ptr server(new sylar::http::HttpServer(true));
     sylar::Address::ptr addr = sylar::Address::LookupAnyIPAddress("0.0.0.0:8020");
     while (!server->bind(addr))
     {
         sleep(2);
     }
+
     auto sd = server->getServletDispatch();
+
     sd->addServlet("/sylar/xx",
                    [](sylar::http::HttpRequest::ptr req, sylar::http::HttpResponse::ptr rsp,
                       sylar::http::HttpSession::ptr session)
                    {
-                       rsp->setBody(req->toString());
+                       rsp->setHeader("Content-Type", "text/plain");
+                       rsp->setBody("OK");
                        return 0;
                    });
 
@@ -25,15 +28,17 @@ void run()
                        [](sylar::http::HttpRequest::ptr req, sylar::http::HttpResponse::ptr rsp,
                           sylar::http::HttpSession::ptr session)
                        {
-                           rsp->setBody("Glob:\r\n" + req->toString());
+                           rsp->setHeader("Content-Type", "text/plain");
+                           rsp->setBody("OK");
                            return 0;
                        });
+
     server->start();
 }
 
 int main(int argc, char **argv)
 {
-    sylar::IOManager iom(2);
+    sylar::IOManager iom(4);
     iom.schedule(run);
     return 0;
 }

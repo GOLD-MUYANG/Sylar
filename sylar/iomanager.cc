@@ -5,6 +5,7 @@
 #include "sylar/timer.h"
 #include <cstddef>
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
 #include <fcntl.h>
 #include <memory>
@@ -24,6 +25,7 @@ IOManager::FdContext::EventContext &IOManager::FdContext::getContext(IOManager::
         return write;
     default:
         SYLAR_ASSERT2(false, "getContext");
+        return read;
     }
 }
 void IOManager::FdContext::resetContext(EventContext &ctx)

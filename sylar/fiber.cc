@@ -82,7 +82,7 @@ Fiber::Fiber(std::function<void()> cb, size_t stacksize, bool use_caller)
         makecontext(&m_ctx, &Fiber::CallerMainFunc, 0);
     }
     // makecontext(&m_ctx, &Fiber::MainFunc, 0);
-    SYLAR_LOG_DEBUG(g_logger) << "Fiber::Fiber id=" << m_id;
+    // SYLAR_LOG_DEBUG(g_logger) << "Fiber::Fiber id=" << m_id;
 }
 
 Fiber::~Fiber()
@@ -105,7 +105,7 @@ Fiber::~Fiber()
             SetThis(nullptr);
         }
     }
-    SYLAR_LOG_DEBUG(g_logger) << "Fiber::~Fiber id=" << m_id;
+    // SYLAR_LOG_DEBUG(g_logger) << "Fiber::~Fiber id=" << m_id;
 }
 
 //设置当前运行的协程

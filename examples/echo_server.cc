@@ -22,7 +22,7 @@ EchoServer::EchoServer(int type) : m_type(type)
 
 void EchoServer::handleClient(sylar::Socket::ptr client)
 {
-    SYLAR_LOG_INFO(g_logger) << "handleClient " << *client;
+    // SYLAR_LOG_INFO(g_logger) << "handleClient " << *client;
     sylar::ByteArray::ptr ba(new sylar::ByteArray);
     while (true)
     {
@@ -33,7 +33,7 @@ void EchoServer::handleClient(sylar::Socket::ptr client)
         int rt = client->recv(&iovs[0], iovs.size());
         if (rt == 0)
         {
-            SYLAR_LOG_INFO(g_logger) << "client close: " << *client;
+            // SYLAR_LOG_INFO(g_logger) << "client close: " << *client;
             break;
         }
         else if (rt < 0)

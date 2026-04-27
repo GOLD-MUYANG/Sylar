@@ -1,2 +1,0 @@
-2026-04-16 21:49:14	system	[INFO]	LoadConfFile file=/home/muyang/workspace/sylar/bin/conf/log.yml ok
-2026-04-16 21:49:14	system	[FATAL]	create work path [/apps/work/sylar errno=30 errstr=Read-only file system

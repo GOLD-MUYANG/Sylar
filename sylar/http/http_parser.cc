@@ -146,10 +146,24 @@ void on_request_http_field(
     if (flen == 0)
     {
         SYLAR_LOG_WARN(g_logger) << "invalid http request field length == 0";
-        // parser->setError(1002);
         return;
     }
-    parser->getData()->setHeader(std::string(field, flen), std::string(value, vlen));
+
+    std::string key(field, flen);
+    std::string val(value, vlen);
+    parser->getData()->setHeader(key, val);
+
+    if (strcasecmp(key.c_str(), "connection") == 0)
+    {
+        if (strcasecmp(val.c_str(), "keep-alive") == 0)
+        {
+            parser->getData()->setClose(false);
+        }
+        else if (strcasecmp(val.c_str(), "close") == 0)
+        {
+            parser->getData()->setClose(true);
+        }
+    }
 }
 
 HttpRequestParser::HttpRequestParser() : m_error(0)
