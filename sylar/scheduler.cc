@@ -259,7 +259,7 @@ void Scheduler::run()
                 }
 
                 ft = *it;
-                m_fibers.erase(it);
+                m_fibers.erase(it++);
                 ++m_activeThreadCount;
                 is_active = true;
                 break;

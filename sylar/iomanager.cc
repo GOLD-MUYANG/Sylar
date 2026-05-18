@@ -322,7 +322,8 @@ bool IOManager::stopping(uint64_t &timeout)
 //如果任务队列里没有可以直接执行的任务或者说协程，才会调用idle方法
 void IOManager::idle()
 {
-    epoll_event *events = new epoll_event[64];
+    const uint64_t MAX_EVNETS = 256;
+    epoll_event *events = new epoll_event[MAX_EVNETS]();
     std::shared_ptr<epoll_event> shared_evnets(events, [](epoll_event *ptr) { delete[] ptr; });
 
     //一直等待IO事件发生并处理
@@ -350,7 +351,7 @@ void IOManager::idle()
             {
                 next_timeout = MAX_TIMEOUT;
             }
-            rt = epoll_wait(m_epfd, events, 64, (int)next_timeout);
+            rt = epoll_wait(m_epfd, events, MAX_EVNETS, (int)next_timeout);
             // SYLAR_LOG_INFO(g_logger) << "epoll_wait rt=" << rt;
             if (rt < 0 && errno == EINTR)
             {
@@ -377,8 +378,8 @@ void IOManager::idle()
             epoll_event &event = events[i];
             if (event.data.fd == m_tickleFds[0])
             {
-                uint8_t dummy;
-                while (read(m_tickleFds[0], &dummy, 1) == 1)
+                uint8_t dummy[256];
+                while (read(m_tickleFds[0], dummy, sizeof(dummy)) > 0)
                     ;
                 continue;
             }
@@ -422,15 +423,16 @@ void IOManager::idle()
             }
 
             //的确有读写事件，就触发事件（直接加到调度器里）
-            if (real_events & READ)
+            if (fd_ctx->events & READ)
             {
-                fd_ctx->triggerEvent(Event::READ);
-                m_pendingEventCount--;
+                fd_ctx->triggerEvent(READ);
+                --m_pendingEventCount;
             }
-            if (real_events & WRITE)
+
+            if (fd_ctx->events & WRITE)
             {
-                fd_ctx->triggerEvent(Event::WRITE);
-                m_pendingEventCount--;
+                fd_ctx->triggerEvent(WRITE);
+                --m_pendingEventCount;
             }
         }
 

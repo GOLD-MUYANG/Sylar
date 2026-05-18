@@ -182,6 +182,7 @@ T getAs(const MapType &m, const std::string &key, const T &def = T())
     return def;
 }
 
+class HttpResponse;
 class HttpRequest
 {
 public:
@@ -189,6 +190,8 @@ public:
     typedef std::map<std::string, std::string, CaseInsensitiveLess> MapType;
 
     HttpRequest(uint8_t version = 0x11, bool close = true);
+
+    std::shared_ptr<HttpResponse> createResponse();
 
     HttpMethod getMethod() const
     {
@@ -275,6 +278,22 @@ public:
     void setClose(bool v)
     {
         m_close = v;
+    }
+
+    /**
+     * @brief 是否websocket
+     */
+    bool isWebsocket() const
+    {
+        return m_websocket;
+    }
+
+    /**
+     * @brief 设置是否websocket
+     */
+    void setWebsocket(bool v)
+    {
+        m_websocket = v;
     }
 
     //之前的是整个设置，现在的是只针对里面的一个
@@ -390,6 +409,8 @@ private:
     MapType m_headers;
     MapType m_params;
     MapType m_cookies;
+    /// 是否为websocket
+    bool m_websocket;
 };
 
 class HttpResponse
@@ -450,6 +471,22 @@ public:
         m_close = v;
     }
 
+    /**
+     * @brief 是否websocket
+     */
+    bool isWebsocket() const
+    {
+        return m_websocket;
+    }
+
+    /**
+     * @brief 设置是否websocket
+     */
+    void setWebsocket(bool v)
+    {
+        m_websocket = v;
+    }
+
     std::string getHeader(const std::string &key, const std::string &def = "") const;
     void setHeader(const std::string &key, const std::string &val);
     void delHeader(const std::string &key);
@@ -477,6 +514,8 @@ private:
     // 返回的状态码对应的string
     std::string m_reason;
     MapType m_headers;
+    /// 是否为websocket
+    bool m_websocket;
 };
 
 std::ostream &operator<<(std::ostream &os, const HttpRequest &req);

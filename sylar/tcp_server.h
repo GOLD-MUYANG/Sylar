@@ -22,9 +22,11 @@ public:
     virtual ~TcpServer();
 
     //将socket和一个地址绑定，这个地址就是服务器的地址，用来和客户端连接
-    virtual bool bind(sylar::Address::ptr addr);
+    virtual bool bind(sylar::Address::ptr addr, bool ssl = false);
     //可以管理多个socket，给定一个地址，完成socket的accept之前的所有动作
-    virtual bool bind(const std::vector<Address::ptr> &addrs, std::vector<Address::ptr> &fails);
+    virtual bool bind(const std::vector<Address::ptr> &addrs,
+                      std::vector<Address::ptr> &fails,
+                      bool ssl = false);
     virtual bool start();
     virtual void stop();
 

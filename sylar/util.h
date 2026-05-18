@@ -1,6 +1,7 @@
 #ifndef __SYLAR_UTIL_H__
 #define __SYLAR_UTIL_H__
 
+#include "sylar/util/hash_util.h"
 #include <cstdint>
 #include <ctime>
 #include <fstream>
