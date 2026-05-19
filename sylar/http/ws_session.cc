@@ -153,7 +153,7 @@ HttpRequest::ptr WSSession::handleShake()
          */
         std::string v = key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
         v = sylar::base64encode(sylar::sha1sum(v));
-
+        req->setWebsocket(true);
         /**
          * 基于请求对象创建响应对象。
          *
@@ -199,8 +199,8 @@ HttpRequest::ptr WSSession::handleShake()
         /**
          * 打印请求和响应，方便调试握手过程。
          */
-        SYLAR_LOG_INFO(g_logger) << *req;
-        SYLAR_LOG_INFO(g_logger) << *rsp;
+        SYLAR_LOG_DEBUG(g_logger) << *req;
+        SYLAR_LOG_DEBUG(g_logger) << *rsp;
 
         return req;
 

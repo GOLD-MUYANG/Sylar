@@ -22,6 +22,8 @@ public:
         return m_dispatch;
     }
 
+    virtual void setName(const std::string &v) override;
+
 protected:
     virtual void handleClient(Socket::ptr client) override;
 

@@ -19,7 +19,7 @@ int32_t FunctionServlet::handle(sylar::http::HttpRequest::ptr request,
 
 ServletDispatch::ServletDispatch() : Servlet("ServletDispatch")
 {
-    m_default.reset(new NotFoundServlet());
+    m_default.reset(new NotFoundServlet("sylar/1.0"));
 }
 
 int32_t ServletDispatch::handle(sylar::http::HttpRequest::ptr request,
@@ -122,8 +122,12 @@ Servlet::ptr ServletDispatch::getGlobServlet(const std::string &uri)
     return nullptr;
 }
 
-NotFoundServlet::NotFoundServlet() : Servlet("NotFoundServlet")
+NotFoundServlet::NotFoundServlet(const std::string &name) : Servlet("NotFoundServlet"), m_name(name)
 {
+    m_content = "<html><head><title>404 Not Found"
+                "</title></head><body><center><h1>404 Not Found</h1></center>"
+                "<hr><center>" +
+                name + "</center></body></html>";
 }
 
 int32_t NotFoundServlet::handle(sylar::http::HttpRequest::ptr request,

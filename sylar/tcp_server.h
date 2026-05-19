@@ -27,6 +27,7 @@ public:
     virtual bool bind(const std::vector<Address::ptr> &addrs,
                       std::vector<Address::ptr> &fails,
                       bool ssl = false);
+    bool loadCertificates(const std::string &cert_file, const std::string &key_file);
     virtual bool start();
     virtual void stop();
 
@@ -42,7 +43,7 @@ public:
     {
         m_recvTimeout = v;
     }
-    void setName(const std::string &v)
+    virtual void setName(const std::string &v)
     {
         m_name = v;
     }

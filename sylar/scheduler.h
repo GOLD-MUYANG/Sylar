@@ -4,6 +4,7 @@
 #include "thread.h"
 #include <cstddef>
 #include <functional>
+#include <iostream>
 #include <list>
 #include <vector>
 
@@ -55,6 +56,9 @@ public:
             tickle();
         }
     }
+
+    void switchTo(int thread = -1);
+    std::ostream &dump(std::ostream &os);
 
     static Scheduler *GetThis();
     static Fiber *GetMainFiber();
@@ -156,6 +160,16 @@ private:
     std::list<FiberAndThread> m_fibers;
     //存放调度器线程的主协程
     Fiber::ptr m_rootFiber;
+};
+
+class SchedulerSwitcher : public Noncopyable
+{
+public:
+    SchedulerSwitcher(Scheduler *target = nullptr);
+    ~SchedulerSwitcher();
+
+private:
+    Scheduler *m_caller;
 };
 
 } // namespace sylar

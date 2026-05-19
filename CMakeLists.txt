@@ -44,6 +44,8 @@ set(LIB_SRC
     sylar/http/ws_session.cc
     sylar/http/ws_server.cc
     sylar/http/ws_servlet.cc
+    sylar/mutex.cc
+    sylar/worker.cc
     )
 
 
@@ -80,13 +82,13 @@ set(LIBS
 # sylar_add_executable(test_http_parser "tests/test_http_parser.cc" sylar "${LIBS}")
 # sylar_add_executable(test_tcp_server "tests/test_tcp_server.cc" sylar "${LIBS}")
 # sylar_add_executable(echo_server "examples/echo_server.cc" sylar "${LIBS}")
-sylar_add_executable(test_http_server "tests/test_http_server.cc" sylar "${LIBS}")
-# sylar_add_executable(test_http_connection "tests/test_http_connection.cc" sylar "${LIBS}")
+# sylar_add_executable(test_http_server "tests/test_http_server.cc" sylar "${LIBS}")
+sylar_add_executable(test_http_connection "tests/test_http_connection.cc" sylar "${LIBS}")
 # sylar_add_executable(test_uri "tests/test_uri.cc" sylar "${LIBS}")
 # sylar_add_executable(test_daemon "tests/test_daemon.cc" sylar "${LIBS}")
-sylar_add_executable(test_application "tests/test_application.cc" sylar "${LIBS}")
-sylar_add_executable(test_ws_server "tests/test_ws_server.cc" sylar "${LIBS}")
-sylar_add_executable(test_ws_client "tests/test_ws_client.cc" sylar "${LIBS}")
+# sylar_add_executable(test_application "tests/test_application.cc" sylar "${LIBS}")
+# sylar_add_executable(test_ws_server "tests/test_ws_server.cc" sylar "${LIBS}")
+# sylar_add_executable(test_ws_client "tests/test_ws_client.cc" sylar "${LIBS}")
 
 
 

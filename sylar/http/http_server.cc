@@ -14,6 +14,12 @@ HttpServer::HttpServer(bool keepalive, sylar::IOManager *worker, sylar::IOManage
     m_dispatch.reset(new ServletDispatch);
 }
 
+void HttpServer::setName(const std::string &v)
+{
+    TcpServer::setName(v);
+    m_dispatch->setDefault(std::make_shared<NotFoundServlet>(v));
+}
+
 void HttpServer::handleClient(Socket::ptr client)
 {
     HttpSession::ptr session(new HttpSession(client));

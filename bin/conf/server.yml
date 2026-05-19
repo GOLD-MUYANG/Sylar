@@ -1,13 +1,21 @@
+# http_servers:
+#     - address: ["0.0.0.0:8010", "127.0.0.1:8011"]
+#       keepalive: 1
+#       timeout: 1000
+#       name: sylar/1.1
+#     - address: ["0.0.0.0:8020", "enp0s3:8021"]
+#       keepalive: 1
+#       timeout: 1000
+#       name: sylar/2.1
+# server:
+#   work_path: /home/muyang/workspace/sylar/bin/work
+#   pid_file: sylar.pid
 http_servers:
-    - address: ["0.0.0.0:8010", "127.0.0.1:8011"]
+    - address: ["0.0.0.0:8090", "127.0.0.1:8091", "/tmp/test.sock"]
       keepalive: 1
       timeout: 1000
       name: sylar/1.1
-    - address: ["0.0.0.0:8020", "enp0s3:8021"]
+    - address: ["0.0.0.0:8072", "localhost:8071"]
       keepalive: 1
       timeout: 1000
       name: sylar/2.1
-server:
-  work_path: /home/muyang/workspace/sylar/bin/work
-  pid_file: sylar.pid
-

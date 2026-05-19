@@ -314,7 +314,8 @@ public:
             SYLAR_LOG_ERROR(SYLAR_LOG_ROOT())
                 << "ConfigVar::"
                    "toString exception"
-                << e.what() << "convert: " << typeid(m_val).name() << "to string";
+                << e.what() << " convert: " << typeid(m_val).name() << " to string"
+                << " name=" << m_name;
         }
         return "";
     }
@@ -328,11 +329,11 @@ public:
         }
         catch (std::exception &e)
         {
-            SYLAR_LOG_ERROR(SYLAR_LOG_ROOT())
-                << "ConfigVar::"
-                   "fromString "
-                   "exception"
-                << e.what() << "convert:string to " << typeid(m_val).name();
+            SYLAR_LOG_ERROR(SYLAR_LOG_ROOT()) << "ConfigVar::"
+                                                 "fromString "
+                                                 "exception"
+                                              << e.what() << "convert:string to "
+                                              << " name=" << m_name << typeid(m_val).name();
         }
         return false;
     }

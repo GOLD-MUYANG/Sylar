@@ -350,4 +350,75 @@ void Scheduler::run()
     }
 }
 
+/**
+ * @brief 将当前协程切换到指定 Scheduler/线程上继续调度
+ *
+ * @param thread 目标线程 ID
+ *        - -1 表示不指定线程，由调度器自行选择
+ *        - 非 -1 表示希望调度到指定线程执行
+ *
+ * 注意：
+ * 这里不会直接把当前执行流“搬到另一个线程”。
+ * 实际流程是：当前协程入队到目标 Scheduler，然后主动让出执行权。
+ */
+void Scheduler::switchTo(int thread)
+{
+    // 当前线程必须已经绑定了 Scheduler。
+    // 否则无法知道当前协程属于哪个调度环境。
+    SYLAR_ASSERT(Scheduler::GetThis() != nullptr);
+
+    // 当前协程已经运行在目标 Scheduler 中。
+    if (Scheduler::GetThis() == this)
+    {
+
+        // 不指定线程，或者目标线程就是当前线程，都不需要重新调度。
+        if (thread == -1 || thread == sylar::GetThreadId())
+        {
+            return;
+        }
+    }
+
+    // 将当前协程加入 this Scheduler 的任务队列。
+    // 如果 thread != -1，则该协程倾向于被指定线程取出执行。
+    schedule(Fiber::GetThis(), thread);
+
+    // 当前协程主动让出执行权。
+    // 之后何时恢复，取决于 Scheduler 的调度逻辑。
+    Fiber::YieldToHold();
+}
+
+std::ostream &Scheduler::dump(std::ostream &os)
+{
+    os << "[Scheduler name=" << m_name << " size=" << m_threadCount
+       << " active_count=" << m_activeThreadCount << " idle_count=" << m_idleThreadCount
+       << " stopping=" << m_stopping << " ]" << std::endl
+       << "    ";
+    for (size_t i = 0; i < m_threadIds.size(); ++i)
+    {
+        if (i)
+        {
+            os << ", ";
+        }
+        os << m_threadIds[i];
+    }
+    return os;
+}
+
+SchedulerSwitcher::SchedulerSwitcher(Scheduler *target)
+{
+    m_caller = Scheduler::GetThis();
+    if (target)
+    {
+        target->switchTo();
+    }
+}
+
+SchedulerSwitcher::~SchedulerSwitcher()
+{
+    if (m_caller)
+    {
+        m_caller->switchTo();
+    }
+}
+
 } // namespace sylar

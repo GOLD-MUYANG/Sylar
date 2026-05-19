@@ -164,6 +164,21 @@ bool Socket::bind(const Address::ptr addr)
                                   << addr->getFamily() << ") not equal, addr=" << addr->toString();
         return false;
     }
+
+    UnixAddress::ptr uaddr = std::dynamic_pointer_cast<UnixAddress>(addr);
+    if (uaddr)
+    {
+        Socket::ptr sock = Socket::CreateUnixTCPSocket();
+        if (sock->connect(uaddr))
+        {
+            return false;
+        }
+        else
+        {
+            sylar::FSUtil::Unlink(uaddr->getPath(), true);
+        }
+    }
+
     if (::bind(m_sock, addr->getAddr(), addr->getAddrLen()))
     {
         SYLAR_LOG_ERROR(g_logger) << "bind error errrno=" << errno << " errstr=" << strerror(errno);
