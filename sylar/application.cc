@@ -3,6 +3,7 @@
 #include "sylar/daemon.h"
 #include "sylar/env.h"
 #include "sylar/log.h"
+#include "sylar/module.h"
 #include "sylar/worker.h"
 #include <unistd.h>
 
@@ -127,20 +128,50 @@ bool Application::init(int argc, char **argv)
     sylar::EnvMgr::GetInstance()->addHelp("d", "run as daemon");
     sylar::EnvMgr::GetInstance()->addHelp("c", "conf path default: ./conf");
     sylar::EnvMgr::GetInstance()->addHelp("p", "print help");
-
+    bool is_print_help = false;
     // 初始化环境管理器，解析命令行参数
     if (!sylar::EnvMgr::GetInstance()->init(argc, argv))
     {
-        sylar::EnvMgr::GetInstance()->printHelp();
-        return false;
+        // sylar::EnvMgr::GetInstance()->printHelp();
+        // return false;
+        is_print_help = true;
     }
 
     // 打印帮助后退出
     if (sylar::EnvMgr::GetInstance()->has("p"))
     {
+        is_print_help = true;
+    }
+
+    // 加载配置
+    std::string conf_path = sylar::EnvMgr::GetInstance()->getConfigPath();
+    SYLAR_LOG_INFO(g_logger) << "load conf path:" << conf_path;
+    sylar::Config::LoadFromConfDir(conf_path);
+
+    //加载模块
+    ModuleMgr::GetInstance()->init();
+    std::vector<Module::ptr> modules;
+    ModuleMgr::GetInstance()->listAll(modules);
+
+    // 把模块的添加的命令行提示加进去
+    for (auto i : modules)
+    {
+        i->onBeforeArgsParse(argc, argv);
+    }
+    // 打印命令行提示
+    if (is_print_help)
+    {
         sylar::EnvMgr::GetInstance()->printHelp();
         return false;
     }
+
+    // 做完以后，看看这个模块还有什么想做的，那就加载一下
+    for (auto i : modules)
+    {
+        i->onAfterArgsParse(argc, argv);
+    }
+    // 现阶段模块该做到的已经做到了，清楚掉，剩下的等application跑起来再说
+    modules.clear();
 
     // 确定运行类型：0 未指定，1 前台，2 守护进程
     int run_type = 0;
@@ -160,7 +191,6 @@ bool Application::init(int argc, char **argv)
         return false;
     }
 
-    // 获取配置路径，加载配置
     /**
         这里的意思是：
         先拼出 pid 文件路径
@@ -170,11 +200,6 @@ bool Application::init(int argc, char **argv)
         而且，守护化以后，进程会 fork，父子进程关系会变化。这个时候如果没有 PID
         文件，外部不容易知道真正提供服务的那个进程号到底是多少。
     */
-    std::string conf_path = sylar::EnvMgr::GetInstance()->getAbsolutePath(
-        sylar::EnvMgr::GetInstance()->get("c", "conf"));
-    SYLAR_LOG_INFO(g_logger) << "load conf path:" << conf_path;
-    sylar::Config::LoadFromConfDir(conf_path);
-
     // 检查服务器是否已经运行
     std::string pidfile = g_server_work_path->getValue() + "/" + g_server_pid_file->getValue();
     if (sylar::FSUtil::IsRunningPidfile(pidfile))
@@ -223,7 +248,7 @@ int Application::main(int argc, char **argv)
     m_mainIOManager.reset(new sylar::IOManager(1, true, "main"));
     m_mainIOManager->schedule(std::bind(&Application::run_fiber, this));
     m_mainIOManager->addTimer(
-        1000, []() {}, true);
+        2000, []() {}, true);
     m_mainIOManager->stop(); // 等待调度器完成
     return 0;
 }

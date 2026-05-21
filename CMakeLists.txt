@@ -46,6 +46,9 @@ set(LIB_SRC
     sylar/http/ws_servlet.cc
     sylar/mutex.cc
     sylar/worker.cc
+    sylar/library.cc
+    sylar/main.cc
+    sylar/module.cc
     )
 
 
@@ -58,6 +61,7 @@ force_redefine_file_macro_for_sources(sylar)    #__FILE__重定义
 #add_library(sylar_static STATIC ${LIB_SRC})
 #SET_TARGET_PROPERTIES (sylar_static PROPERTIES OUTPUT_NAME "sylar")
 target_link_libraries(sylar PUBLIC yaml-cpp)
+
 
 set(LIBS
         sylar
@@ -89,16 +93,20 @@ sylar_add_executable(test_http_connection "tests/test_http_connection.cc" sylar 
 # sylar_add_executable(test_application "tests/test_application.cc" sylar "${LIBS}")
 # sylar_add_executable(test_ws_server "tests/test_ws_server.cc" sylar "${LIBS}")
 # sylar_add_executable(test_ws_client "tests/test_ws_client.cc" sylar "${LIBS}")
+sylar_add_executable(bin_sylar "sylar/main.cc" sylar "${LIBS}")
+set_target_properties(bin_sylar PROPERTIES OUTPUT_NAME "sylar")
 
-
+add_library(module SHARED tests/test_module.cc)
+target_link_libraries(module PRIVATE sylar)
+set_target_properties(module PROPERTIES
+    LIBRARY_OUTPUT_DIRECTORY ${PROJECT_SOURCE_DIR}/bin/module
+)
+add_dependencies(bin_sylar module)
 
 # add_executable(test tests/test.cc)
 # add_dependencies(test sylar)
 # force_redefine_file_macro_for_sources(test)    #__FILE__重定义
 # target_link_libraries(test sylar)
-
-
-
 
 SET(EXECUTABLE_OUTPUT_PATH ${PROJECT_SOURCE_DIR}/bin)
 SET(LIBRARY_OUTPUT_PATH ${PROJECT_SOURCE_DIR}/lib)

@@ -36,6 +36,7 @@ public:
     bool setEnv(const std::string &key, const std::string &val);
     std::string getEnv(const std::string &key, const std::string &default_value = "");
     std::string getAbsolutePath(const std::string &path) const;
+    std::string getConfigPath();
 
 private:
     RWMutexType m_mutex;                       // 读写锁，保护 m_args 和 m_helps

@@ -464,7 +464,7 @@ public:
     /**
      * @brief 加载path文件夹里面的配置文件
      */
-    static void LoadFromConfDir(const std::string &path);
+    static void LoadFromConfDir(const std::string &path, bool force = false);
 
 private:
     static ConfigVarMap &GetDatas()

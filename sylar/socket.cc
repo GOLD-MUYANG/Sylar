@@ -373,6 +373,9 @@ Address::ptr Socket::getLocalAddress()
     case AF_INET6:
         result.reset(new IPv6Address());
         break;
+    case AF_UNIX:
+        result.reset(new UnixAddress());
+        break;
     default:
         result.reset(new UnknownAddress(m_family));
         break;
