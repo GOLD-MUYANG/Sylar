@@ -124,7 +124,7 @@ bool Address::Lookup(
     }
 
     freeaddrinfo(results);
-    return true;
+    return !result.empty();
 }
 
 Address::ptr Address::LookupAny(const std::string &host, int family, int type, int protocol)
@@ -220,7 +220,7 @@ bool Address::GetInterfaceAddresses(
         return false;
     }
     freeifaddrs(results);
-    return true;
+    return !result.empty();
 }
 bool Address::GetInterfaceAddresses(std::vector<std::pair<Address::ptr, uint32_t>> &result,
                                     const std::string &iface,
@@ -256,7 +256,7 @@ bool Address::GetInterfaceAddresses(std::vector<std::pair<Address::ptr, uint32_t
     {
         result.push_back(its.first->second);
     }
-    return true;
+    return !result.empty();
 }
 
 int Address::getFamily() const

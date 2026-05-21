@@ -28,6 +28,7 @@ private:
 
     std::vector<sylar::http::HttpServer::ptr> m_httpservers;
     static Application *s_instance;
+    IOManager::ptr m_mainIOManager;
 };
 
 } // namespace sylar
