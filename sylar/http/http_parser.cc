@@ -267,7 +267,21 @@ void on_response_http_field(
         parser->setError(1002);
         return;
     }
-    parser->getData()->setHeader(std::string(field, flen), std::string(value, vlen));
+    std::string key(field, flen);
+    std::string val(value, vlen);
+    parser->getData()->setHeader(key, val);
+
+    if (strcasecmp(key.c_str(), "connection") == 0)
+    {
+        if (strcasecmp(val.c_str(), "keep-alive") == 0)
+        {
+            parser->getData()->setClose(false);
+        }
+        else if (strcasecmp(val.c_str(), "close") == 0)
+        {
+            parser->getData()->setClose(true);
+        }
+    }
 }
 HttpResponseParser::HttpResponseParser() : m_error(0)
 {

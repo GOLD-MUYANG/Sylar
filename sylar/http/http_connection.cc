@@ -1,5 +1,6 @@
 #include "http_connection.h"
 #include "http_parser.h"
+#include "sylar/iomanager.h"
 #include "sylar/log.h"
 #include "sylar/thread.h"
 #include "sylar/uri.h"
@@ -153,6 +154,14 @@ HttpResponse::ptr HttpConnection::recvResponse()
             }
             parser->getData()->setBody(body);
         }
+    }
+    if (client_parser.close)
+    {
+        parser->getData()->setClose(true);
+    }
+    else if (parser->getData()->getVersion() == 0x11)
+    {
+        parser->getData()->setClose(false);
     }
     return parser->getData();
 }
@@ -339,75 +348,230 @@ HttpConnectionPool::HttpConnectionPool(const std::string &host,
 
 HttpConnection::ptr HttpConnectionPool::getConnection()
 {
-    uint64_t now_ms = sylar::GetCurrentMS();
-    std::vector<HttpConnection *> invalid_conns;
-    HttpConnection *ptr = nullptr;
-    MutexType::Lock lock(m_mutex);
-    while (!m_conns.empty())
+    //(uint64_t)-1.表示 无限等待。
+    // 从连接池里拿一个连接，如果没有空闲连接，且连接数已满，就一直等，直到有连接释放出来。
+    return getConnection((uint64_t)-1);
+}
+
+// 判断一个连接还能不能继续用。
+bool HttpConnectionPool::isConnectionReusable(HttpConnection *ptr, uint64_t now_ms) const
+{
+    // socket 已经断开
+    if (!ptr->isConnected())
     {
-        auto conn = *m_conns.begin();
-        m_conns.pop_front();
-        if (!conn->isConnected())
+        return false;
+    }
+    // 连接活得太久了，超过最大存活时间
+    if (m_maxAliveTime && (ptr->m_createTime + m_maxAliveTime <= now_ms))
+    {
+        return false;
+    }
+    // 这个连接处理请求次数太多了
+    if (m_maxRequest && (ptr->m_request >= m_maxRequest))
+    {
+        return false;
+    }
+    return true;
+}
+
+// 唤醒等待连接的协程
+void HttpConnectionPool::notifyWaiter()
+{
+    while (!m_waiters.empty())
+    {
+        auto waiter = m_waiters.front();
+        m_waiters.pop_front();
+        if (waiter->timeout || waiter->notified)
         {
-            invalid_conns.push_back(conn);
             continue;
         }
-        if ((conn->m_createTime + m_maxAliveTime) > now_ms)
-        {
-            invalid_conns.push_back(conn);
-            continue;
-        }
-        ptr = conn;
+        waiter->notified = true;
+        waiter->scheduler->schedule(waiter->fiber);
         break;
     }
-    lock.unlock();
+}
+
+/**
+开始取连接
+    |
+    v
+检查空闲连接队列 m_conns
+    |
+    |-- 有可复用连接 -> 返回
+    |
+    |-- 有不可复用连接 -> 删除，m_total--
+    |
+    v
+没有可用连接
+    |
+    |-- 总连接数没达到上限 -> 创建新连接
+    |
+    |-- 总连接数达到上限 -> 当前协程等待
+                                  |
+                                  |-- 被释放连接唤醒 -> 重新尝试
+                                  |
+                                  |-- 等待超时 -> 返回 nullptr
+*/
+HttpConnection::ptr HttpConnectionPool::getConnection(uint64_t timeout_ms)
+{
+    uint64_t start_ms = sylar::GetCurrentMS();
+    std::vector<HttpConnection *> invalid_conns;
+    while (true)
+    {
+        uint64_t now_ms = sylar::GetCurrentMS();
+        HttpConnection *ptr = nullptr;
+        bool need_create = false;
+        Waiter::ptr waiter;
+        // 先从空闲连接队列里找连接
+        {
+            MutexType::Lock lock(m_mutex);
+            while (!m_conns.empty())
+            {
+                auto conn = *m_conns.begin();
+                m_conns.pop_front();
+                if (!isConnectionReusable(conn, now_ms))
+                {
+                    // 注意这里没有立刻 delete，而是先放入 invalid_conns。
+                    // 原因是当前还在锁里：
+                    // 它选择先把坏连接摘出来，释放锁之后再删除：
+                    invalid_conns.push_back(conn);
+                    --m_total;
+                    continue;
+                }
+                ptr = conn;
+                break;
+            }
+            // 没有空闲连接时，判断能不能新建
+            if (!ptr)
+            {
+                if (m_maxSize == 0 || m_total < (int32_t)m_maxSize)
+                {
+                    ++m_total;
+                    need_create = true;
+                }
+                else
+                {
+                    if (timeout_ms == 0 ||
+                        (timeout_ms != (uint64_t)-1 && now_ms - start_ms >= timeout_ms))
+                    {
+                        break;
+                    }
+                    waiter.reset(new Waiter);
+                    waiter->scheduler = sylar::Scheduler::GetThis();
+                    waiter->fiber = sylar::Fiber::GetThis();
+                    m_waiters.push_back(waiter);
+                }
+            }
+        }
+
+        for (auto i : invalid_conns)
+        {
+            delete i;
+        }
+        invalid_conns.clear();
+
+        if (ptr)
+        {
+            return HttpConnection::ptr(
+                ptr, std::bind(&HttpConnectionPool::ReleasePtr, std::placeholders::_1, this));
+        }
+
+        if (need_create)
+        {
+            IPAddress::ptr addr = Address::LookupAnyIPAddress(m_host);
+            if (!addr)
+            {
+                SYLAR_LOG_ERROR(g_logger) << "get addr fail: " << m_host;
+                MutexType::Lock lock(m_mutex);
+                --m_total;
+                notifyWaiter();
+                return nullptr;
+            }
+            addr->setPort(m_port);
+            Socket::ptr sock = m_isHttps ? SSLSocket::CreateTCP(addr) : Socket::CreateTCP(addr);
+            if (!sock)
+            {
+                SYLAR_LOG_ERROR(g_logger) << "create sock fail: " << *addr;
+                MutexType::Lock lock(m_mutex);
+                --m_total;
+                notifyWaiter();
+                return nullptr;
+            }
+            if (!sock->connect(addr))
+            {
+                SYLAR_LOG_ERROR(g_logger) << "sock connect fail: " << *addr;
+                MutexType::Lock lock(m_mutex);
+                --m_total;
+                notifyWaiter();
+                return nullptr;
+            }
+
+            ptr = new HttpConnection(sock);
+            ptr->m_createTime = sylar::GetCurrentMS();
+            return HttpConnection::ptr(
+                ptr, std::bind(&HttpConnectionPool::ReleasePtr, std::placeholders::_1, this));
+        }
+        // 等待逻辑：定时器 + 协程挂起
+        if (waiter)
+        {
+            sylar::Timer::ptr timer;
+            if (timeout_ms != (uint64_t)-1)
+            {
+                uint64_t left =
+                    timeout_ms > (now_ms - start_ms) ? timeout_ms - (now_ms - start_ms) : 0;
+                timer = sylar::IOManager::GetThis()->addTimer(left,
+                                                              [this, waiter]()
+                                                              {
+                                                                  MutexType::Lock lock(m_mutex);
+                                                                  if (waiter->notified)
+                                                                  {
+                                                                      return;
+                                                                  }
+                                                                  waiter->timeout = true;
+                                                                  waiter->scheduler->schedule(
+                                                                      waiter->fiber);
+                                                              });
+            }
+            sylar::Fiber::YieldToHold();
+            if (timer)
+            {
+                timer->cancel();
+            }
+
+            MutexType::Lock lock(m_mutex);
+            if (!waiter->notified)
+            {
+                m_waiters.remove(waiter);
+            }
+            if (waiter->timeout)
+            {
+                return nullptr;
+            }
+        }
+    }
+
     for (auto i : invalid_conns)
     {
         delete i;
     }
-    m_total -= invalid_conns.size();
-
-    if (!ptr)
-    {
-        IPAddress::ptr addr = Address::LookupAnyIPAddress(m_host);
-        if (!addr)
-        {
-            SYLAR_LOG_ERROR(g_logger) << "get addr fail: " << m_host;
-            return nullptr;
-        }
-        addr->setPort(m_port);
-        Socket::ptr sock = m_isHttps ? SSLSocket::CreateTCP(addr) : Socket::CreateTCP(addr);
-        if (!sock)
-        {
-            SYLAR_LOG_ERROR(g_logger) << "create sock fail: " << *addr;
-            return nullptr;
-        }
-        if (!sock->connect(addr))
-        {
-            SYLAR_LOG_ERROR(g_logger) << "sock connect fail: " << *addr;
-            return nullptr;
-        }
-
-        ptr = new HttpConnection(sock);
-        ++m_total;
-    }
-    return HttpConnection::ptr(
-        ptr, std::bind(&HttpConnectionPool::ReleasePtr, std::placeholders::_1, this));
+    return nullptr;
 }
 
 void HttpConnectionPool::ReleasePtr(HttpConnection *ptr, HttpConnectionPool *pool)
 {
     ++ptr->m_request;
-    if (!ptr->isConnected() ||
-        ((ptr->m_createTime + pool->m_maxAliveTime) >= sylar::GetCurrentMS()) ||
-        (ptr->m_request >= pool->m_maxRequest))
+    uint64_t now_ms = sylar::GetCurrentMS();
+    if (!pool->isConnectionReusable(ptr, now_ms))
     {
         delete ptr;
+        MutexType::Lock lock(pool->m_mutex);
         --pool->m_total;
+        pool->notifyWaiter();
         return;
     }
     MutexType::Lock lock(pool->m_mutex);
     pool->m_conns.push_back(ptr);
+    pool->notifyWaiter();
 }
 
 HttpResult::ptr HttpConnectionPool::doGet(const std::string &url,
@@ -506,7 +670,7 @@ HttpResult::ptr HttpConnectionPool::doRequest(HttpMethod method,
 
 HttpResult::ptr HttpConnectionPool::doRequest(HttpRequest::ptr req, uint64_t timeout_ms)
 {
-    auto conn = getConnection();
+    auto conn = getConnection(timeout_ms);
     if (!conn)
     {
         return std::make_shared<HttpResult>((int)HttpResult::Error::POOL_GET_CONNECTION, nullptr,
@@ -542,6 +706,10 @@ HttpResult::ptr HttpConnectionPool::doRequest(HttpRequest::ptr req, uint64_t tim
             (int)HttpResult::Error::TIMEOUT, nullptr,
             "recv response timeout: " + sock->getRemoteAddress()->toString() +
                 " timeout_ms:" + std::to_string(timeout_ms));
+    }
+    if (rsp->isClose())
+    {
+        conn->close();
     }
     return std::make_shared<HttpResult>((int)HttpResult::Error::OK, rsp, "ok");
 }

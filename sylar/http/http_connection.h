@@ -308,7 +308,19 @@ public:
     HttpResult::ptr doRequest(HttpRequest::ptr req, uint64_t timeout_ms);
 
 private:
+    struct Waiter
+    {
+        typedef std::shared_ptr<Waiter> ptr;
+        sylar::Scheduler *scheduler = nullptr;
+        sylar::Fiber::ptr fiber;
+        bool notified = false;
+        bool timeout = false;
+    };
+
+    HttpConnection::ptr getConnection(uint64_t timeout_ms);
     static void ReleasePtr(HttpConnection *ptr, HttpConnectionPool *pool);
+    bool isConnectionReusable(HttpConnection *ptr, uint64_t now_ms) const;
+    void notifyWaiter();
 
 private:
     std::string m_host;
@@ -321,6 +333,7 @@ private:
 
     MutexType m_mutex;
     std::list<HttpConnection *> m_conns;
+    std::list<std::shared_ptr<Waiter>> m_waiters;
     std::atomic<int32_t> m_total = {0};
 };
 
