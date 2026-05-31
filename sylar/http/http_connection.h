@@ -2,6 +2,7 @@
 #define __SYLAR_HTTP_CONNECTION_H__
 
 #include "http.h"
+#include "http_request_options.h"
 #include "sylar/socket_stream.h"
 #include "sylar/thread.h"
 #include "sylar/uri.h"
@@ -90,6 +91,10 @@ public:
                                  uint64_t timeout_ms,
                                  const std::map<std::string, std::string> &headers = {},
                                  const std::string &body = "");
+    static HttpResult::ptr DoGet(const std::string &url,
+                                 const HttpRequestOptions &options,
+                                 const std::map<std::string, std::string> &headers = {},
+                                 const std::string &body = "");
 
     /**
      * @brief 发送HTTP的GET请求
@@ -101,6 +106,10 @@ public:
      */
     static HttpResult::ptr DoGet(Uri::ptr uri,
                                  uint64_t timeout_ms,
+                                 const std::map<std::string, std::string> &headers = {},
+                                 const std::string &body = "");
+    static HttpResult::ptr DoGet(Uri::ptr uri,
+                                 const HttpRequestOptions &options,
                                  const std::map<std::string, std::string> &headers = {},
                                  const std::string &body = "");
 
@@ -116,6 +125,10 @@ public:
                                   uint64_t timeout_ms,
                                   const std::map<std::string, std::string> &headers = {},
                                   const std::string &body = "");
+    static HttpResult::ptr DoPost(const std::string &url,
+                                  const HttpRequestOptions &options,
+                                  const std::map<std::string, std::string> &headers = {},
+                                  const std::string &body = "");
 
     /**
      * @brief 发送HTTP的POST请求
@@ -127,6 +140,10 @@ public:
      */
     static HttpResult::ptr DoPost(Uri::ptr uri,
                                   uint64_t timeout_ms,
+                                  const std::map<std::string, std::string> &headers = {},
+                                  const std::string &body = "");
+    static HttpResult::ptr DoPost(Uri::ptr uri,
+                                  const HttpRequestOptions &options,
                                   const std::map<std::string, std::string> &headers = {},
                                   const std::string &body = "");
 
@@ -144,6 +161,11 @@ public:
                                      uint64_t timeout_ms,
                                      const std::map<std::string, std::string> &headers = {},
                                      const std::string &body = "");
+    static HttpResult::ptr DoRequest(HttpMethod method,
+                                     const std::string &url,
+                                     const HttpRequestOptions &options,
+                                     const std::map<std::string, std::string> &headers = {},
+                                     const std::string &body = "");
 
     /**
      * @brief 发送HTTP请求
@@ -159,6 +181,11 @@ public:
                                      uint64_t timeout_ms,
                                      const std::map<std::string, std::string> &headers = {},
                                      const std::string &body = "");
+    static HttpResult::ptr DoRequest(HttpMethod method,
+                                     Uri::ptr uri,
+                                     const HttpRequestOptions &options,
+                                     const std::map<std::string, std::string> &headers = {},
+                                     const std::string &body = "");
 
     /**
      * @brief 发送HTTP请求
@@ -168,6 +195,9 @@ public:
      * @return 返回HTTP结果结构体
      */
     static HttpResult::ptr DoRequest(HttpRequest::ptr req, Uri::ptr uri, uint64_t timeout_ms);
+    static HttpResult::ptr DoRequest(HttpRequest::ptr req,
+                                     Uri::ptr uri,
+                                     const HttpRequestOptions &options);
 
     /**
      * @brief 构造函数
@@ -229,6 +259,10 @@ public:
                           uint64_t timeout_ms,
                           const std::map<std::string, std::string> &headers = {},
                           const std::string &body = "");
+    HttpResult::ptr doGet(const std::string &url,
+                          const HttpRequestOptions &options,
+                          const std::map<std::string, std::string> &headers = {},
+                          const std::string &body = "");
 
     /**
      * @brief 发送HTTP的GET请求
@@ -240,6 +274,10 @@ public:
      */
     HttpResult::ptr doGet(Uri::ptr uri,
                           uint64_t timeout_ms,
+                          const std::map<std::string, std::string> &headers = {},
+                          const std::string &body = "");
+    HttpResult::ptr doGet(Uri::ptr uri,
+                          const HttpRequestOptions &options,
                           const std::map<std::string, std::string> &headers = {},
                           const std::string &body = "");
 
@@ -255,6 +293,10 @@ public:
                            uint64_t timeout_ms,
                            const std::map<std::string, std::string> &headers = {},
                            const std::string &body = "");
+    HttpResult::ptr doPost(const std::string &url,
+                           const HttpRequestOptions &options,
+                           const std::map<std::string, std::string> &headers = {},
+                           const std::string &body = "");
 
     /**
      * @brief 发送HTTP的POST请求
@@ -266,6 +308,10 @@ public:
      */
     HttpResult::ptr doPost(Uri::ptr uri,
                            uint64_t timeout_ms,
+                           const std::map<std::string, std::string> &headers = {},
+                           const std::string &body = "");
+    HttpResult::ptr doPost(Uri::ptr uri,
+                           const HttpRequestOptions &options,
                            const std::map<std::string, std::string> &headers = {},
                            const std::string &body = "");
 
@@ -283,6 +329,11 @@ public:
                               uint64_t timeout_ms,
                               const std::map<std::string, std::string> &headers = {},
                               const std::string &body = "");
+    HttpResult::ptr doRequest(HttpMethod method,
+                              const std::string &url,
+                              const HttpRequestOptions &options,
+                              const std::map<std::string, std::string> &headers = {},
+                              const std::string &body = "");
 
     /**
      * @brief 发送HTTP请求
@@ -298,6 +349,11 @@ public:
                               uint64_t timeout_ms,
                               const std::map<std::string, std::string> &headers = {},
                               const std::string &body = "");
+    HttpResult::ptr doRequest(HttpMethod method,
+                              Uri::ptr uri,
+                              const HttpRequestOptions &options,
+                              const std::map<std::string, std::string> &headers = {},
+                              const std::string &body = "");
 
     /**
      * @brief 发送HTTP请求
@@ -306,6 +362,7 @@ public:
      * @return 返回HTTP结果结构体
      */
     HttpResult::ptr doRequest(HttpRequest::ptr req, uint64_t timeout_ms);
+    HttpResult::ptr doRequest(HttpRequest::ptr req, const HttpRequestOptions &options);
 
 private:
     struct Waiter

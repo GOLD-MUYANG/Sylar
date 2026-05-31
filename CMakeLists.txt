@@ -35,6 +35,7 @@ set(LIB_SRC
     sylar/http/http_server.cc
     sylar/http/servlet.cc
     sylar/http/http_connection.cc
+    sylar/http/http_request_options.cc
     sylar/uri.rl.cc
     sylar/daemon.cc
     sylar/env.cc
@@ -88,6 +89,7 @@ set(LIBS
 # sylar_add_executable(echo_server "examples/echo_server.cc" sylar "${LIBS}")
 # sylar_add_executable(test_http_server "tests/test_http_server.cc" sylar "${LIBS}")
 sylar_add_executable(test_http_connection "tests/test_http_connection.cc" sylar "${LIBS}")
+sylar_add_executable(test_http_request_options "tests/test_http_request_options.cc" sylar "${LIBS}")
 # sylar_add_executable(test_uri "tests/test_uri.cc" sylar "${LIBS}")
 # sylar_add_executable(test_daemon "tests/test_daemon.cc" sylar "${LIBS}")
 # sylar_add_executable(test_application "tests/test_application.cc" sylar "${LIBS}")

@@ -4,7 +4,6 @@
 #include "iomanager.h"
 #include "log.h"
 #include "macro.h"
-#include <asm-generic/socket.h>
 #include <cstddef>
 #include <limits.h>
 #include <netinet/in.h>
@@ -82,7 +81,7 @@ int64_t Socket::getSendTimeOut() const
 void Socket::setSendTimeOut(int64_t v)
 {
     struct timeval tv = {int(v / 1000), int(v % 1000 * 1000)};
-    setOption(SOL_SOCKET, SO_SNDTIMEO, &tv);
+    setOption(SOL_SOCKET, SO_SNDTIMEO, tv);
 }
 
 int64_t Socket::getRecvTimeOut() const
@@ -506,6 +505,7 @@ void Socket::newSock()
     m_sock = socket(m_family, m_type, m_protocol);
     if (SYLAR_LIKELY(m_sock != -1))
     {
+        FdMgr::GetInstance()->get(m_sock, true);
         initSock();
     }
     else
@@ -518,10 +518,10 @@ void Socket::newSock()
 void Socket::initSock()
 {
     int val = 1;
-    setOption(SOL_SOCKET, SO_REUSEADDR, &val);
+    setOption(SOL_SOCKET, SO_REUSEADDR, val);
     if (m_type == SOCK_STREAM)
     {
-        setOption(IPPROTO_TCP, TCP_NODELAY, &val);
+        setOption(IPPROTO_TCP, TCP_NODELAY, val);
     }
 }
 

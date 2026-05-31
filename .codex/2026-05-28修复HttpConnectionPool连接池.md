@@ -3,7 +3,8 @@
 ## 背景
 
 根据 `文档/接下来要做什么.md` 中“三、推荐建设顺序”的第一步，修正
-`HttpConnectionPool` 的连接生命周期、最大连接数、等待/超时和本地测试。
+`HttpConnectionPool` 的连接生命周期、最大连接数、等待/超时，并按要求使用
+`www.baidu.com` 做连接池各项测试。
 
 ## 排查过程
 
@@ -26,10 +27,10 @@
    - 原因：确认等待队列可用 `Scheduler + Fiber + Timer` 实现协程等待和超时唤醒。
 
 7. `cmake --build build --target test_http_connection`
-   - 原因：构建新增本地回归测试。
+   - 原因：构建基于 `www.baidu.com` 的连接池回归测试。
 
 8. `./bin/test_http_connection`
-   - 原因：运行新增测试。沙箱内本地 socket 会返回 `Operation not permitted`，因此使用提升权限运行。
+   - 原因：运行新增测试，验证连接复用、最大请求次数、最大存活时间、池满等待和池满超时。
 
 9. `gdb -batch -ex run -ex bt --args ./bin/test_http_connection`
    - 原因：初版测试出现段错误，用栈信息确认是测试断言后继续解引用空响应，随后修正测试保护逻辑。
@@ -38,7 +39,7 @@
     - 原因：源码修正后做完整构建验证。
 
 11. `./bin/test_http_connection`
-    - 原因：验证本地连接池回归测试通过，不依赖外网。
+    - 原因：验证连接池回归测试通过。该测试依赖访问 `www.baidu.com`。
 
 ## 根因
 
@@ -52,4 +53,4 @@
 ## 验证结果
 
 - `cmake --build build`：通过。
-- `./bin/test_http_connection`：通过。该测试使用本地 socket，需要在非沙箱环境运行。
+- `./bin/test_http_connection`：通过。该测试依赖访问 `www.baidu.com`。

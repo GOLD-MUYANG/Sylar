@@ -4,6 +4,7 @@
 #include "sylar/log.h"
 #include "sylar/thread.h"
 #include "sylar/uri.h"
+#include <algorithm>
 #include <list>
 
 namespace sylar
@@ -12,6 +13,39 @@ namespace http
 {
 
 static sylar::Logger::ptr g_logger = SYLAR_LOG_NAME("system");
+
+static uint64_t s_http_timeout_forever = (uint64_t)-1;
+// GetTimeoutLeft() 计算一次请求的 总超时还剩多少时间。
+static uint64_t GetTimeoutLeft(uint64_t start_ms, uint64_t total_timeout_ms)
+{
+    if (total_timeout_ms == s_http_timeout_forever)
+    {
+        return s_http_timeout_forever;
+    }
+    uint64_t now_ms = sylar::GetCurrentMS();
+    uint64_t elapsed = now_ms >= start_ms ? now_ms - start_ms : 0;
+    return elapsed >= total_timeout_ms ? 0 : total_timeout_ms - elapsed;
+}
+// MergeTimeout() 把某个阶段的超时和总超时剩余时间合并，取更严格的那个。
+// 目的：某个阶段最多只能等待 min(阶段超时, 总超时剩余时间)。
+// 例如：
+// - recv_timeout_ms = 1000
+// - total_timeout_ms 剩余 50
+// 那么 recv 阶段最多只能等 50ms，而不是 1000ms。
+static uint64_t
+MergeTimeout(uint64_t stage_timeout_ms, uint64_t start_ms, uint64_t total_timeout_ms)
+{
+    uint64_t left = GetTimeoutLeft(start_ms, total_timeout_ms);
+    if (stage_timeout_ms == s_http_timeout_forever)
+    {
+        return left;
+    }
+    if (left == s_http_timeout_forever)
+    {
+        return stage_timeout_ms;
+    }
+    return std::min(stage_timeout_ms, left);
+}
 
 std::string HttpResult::toString() const
 {
@@ -179,13 +213,21 @@ HttpResult::ptr HttpConnection::DoGet(const std::string &url,
                                       const std::map<std::string, std::string> &headers,
                                       const std::string &body)
 {
+    return DoGet(url, HttpRequestOptions::FromTimeout(timeout_ms), headers, body);
+}
+
+HttpResult::ptr HttpConnection::DoGet(const std::string &url,
+                                      const HttpRequestOptions &options,
+                                      const std::map<std::string, std::string> &headers,
+                                      const std::string &body)
+{
     Uri::ptr uri = Uri::Create(url);
     if (!uri)
     {
         return std::make_shared<HttpResult>((int)HttpResult::Error::INVALID_URL, nullptr,
                                             "invalid url: " + url);
     }
-    return DoGet(uri, timeout_ms, headers, body);
+    return DoGet(uri, options, headers, body);
 }
 
 HttpResult::ptr HttpConnection::DoGet(Uri::ptr uri,
@@ -193,11 +235,27 @@ HttpResult::ptr HttpConnection::DoGet(Uri::ptr uri,
                                       const std::map<std::string, std::string> &headers,
                                       const std::string &body)
 {
-    return DoRequest(HttpMethod::GET, uri, timeout_ms, headers, body);
+    return DoGet(uri, HttpRequestOptions::FromTimeout(timeout_ms), headers, body);
+}
+
+HttpResult::ptr HttpConnection::DoGet(Uri::ptr uri,
+                                      const HttpRequestOptions &options,
+                                      const std::map<std::string, std::string> &headers,
+                                      const std::string &body)
+{
+    return DoRequest(HttpMethod::GET, uri, options, headers, body);
 }
 
 HttpResult::ptr HttpConnection::DoPost(const std::string &url,
                                        uint64_t timeout_ms,
+                                       const std::map<std::string, std::string> &headers,
+                                       const std::string &body)
+{
+    return DoPost(url, HttpRequestOptions::FromTimeout(timeout_ms), headers, body);
+}
+
+HttpResult::ptr HttpConnection::DoPost(const std::string &url,
+                                       const HttpRequestOptions &options,
                                        const std::map<std::string, std::string> &headers,
                                        const std::string &body)
 {
@@ -207,7 +265,7 @@ HttpResult::ptr HttpConnection::DoPost(const std::string &url,
         return std::make_shared<HttpResult>((int)HttpResult::Error::INVALID_URL, nullptr,
                                             "invalid url: " + url);
     }
-    return DoPost(uri, timeout_ms, headers, body);
+    return DoPost(uri, options, headers, body);
 }
 
 HttpResult::ptr HttpConnection::DoPost(Uri::ptr uri,
@@ -215,12 +273,29 @@ HttpResult::ptr HttpConnection::DoPost(Uri::ptr uri,
                                        const std::map<std::string, std::string> &headers,
                                        const std::string &body)
 {
-    return DoRequest(HttpMethod::POST, uri, timeout_ms, headers, body);
+    return DoPost(uri, HttpRequestOptions::FromTimeout(timeout_ms), headers, body);
+}
+
+HttpResult::ptr HttpConnection::DoPost(Uri::ptr uri,
+                                       const HttpRequestOptions &options,
+                                       const std::map<std::string, std::string> &headers,
+                                       const std::string &body)
+{
+    return DoRequest(HttpMethod::POST, uri, options, headers, body);
 }
 
 HttpResult::ptr HttpConnection::DoRequest(HttpMethod method,
                                           const std::string &url,
                                           uint64_t timeout_ms,
+                                          const std::map<std::string, std::string> &headers,
+                                          const std::string &body)
+{
+    return DoRequest(method, url, HttpRequestOptions::FromTimeout(timeout_ms), headers, body);
+}
+
+HttpResult::ptr HttpConnection::DoRequest(HttpMethod method,
+                                          const std::string &url,
+                                          const HttpRequestOptions &options,
                                           const std::map<std::string, std::string> &headers,
                                           const std::string &body)
 {
@@ -230,12 +305,21 @@ HttpResult::ptr HttpConnection::DoRequest(HttpMethod method,
         return std::make_shared<HttpResult>((int)HttpResult::Error::INVALID_URL, nullptr,
                                             "invalid url: " + url);
     }
-    return DoRequest(method, uri, timeout_ms, headers, body);
+    return DoRequest(method, uri, options, headers, body);
 }
 
 HttpResult::ptr HttpConnection::DoRequest(HttpMethod method,
                                           Uri::ptr uri,
                                           uint64_t timeout_ms,
+                                          const std::map<std::string, std::string> &headers,
+                                          const std::string &body)
+{
+    return DoRequest(method, uri, HttpRequestOptions::FromTimeout(timeout_ms), headers, body);
+}
+
+HttpResult::ptr HttpConnection::DoRequest(HttpMethod method,
+                                          Uri::ptr uri,
+                                          const HttpRequestOptions &options,
                                           const std::map<std::string, std::string> &headers,
                                           const std::string &body)
 {
@@ -268,11 +352,18 @@ HttpResult::ptr HttpConnection::DoRequest(HttpMethod method,
         req->setHeader("Host", uri->getHost());
     }
     req->setBody(body);
-    return DoRequest(req, uri, timeout_ms);
+    return DoRequest(req, uri, options);
 }
 
 HttpResult::ptr HttpConnection::DoRequest(HttpRequest::ptr req, Uri::ptr uri, uint64_t timeout_ms)
 {
+    return DoRequest(req, uri, HttpRequestOptions::FromTimeout(timeout_ms));
+}
+
+HttpResult::ptr
+HttpConnection::DoRequest(HttpRequest::ptr req, Uri::ptr uri, const HttpRequestOptions &options)
+{
+    uint64_t start_ms = sylar::GetCurrentMS();
     bool is_ssl = uri->getScheme() == "https";
     Address::ptr addr = uri->createAddress();
     if (!addr)
@@ -288,12 +379,15 @@ HttpResult::ptr HttpConnection::DoRequest(HttpRequest::ptr req, Uri::ptr uri, ui
                                                 " errno=" + std::to_string(errno) +
                                                 " errstr=" + std::string(strerror(errno)));
     }
-    if (!sock->connect(addr))
+    uint64_t connect_timeout_ms =
+        MergeTimeout(options.connect_timeout_ms, start_ms, options.total_timeout_ms);
+    if (!sock->connect(addr, connect_timeout_ms))
     {
         return std::make_shared<HttpResult>((int)HttpResult::Error::CONNECT_FAIL, nullptr,
                                             "connect fail: " + addr->toString());
     }
-    sock->setRecvTimeOut(timeout_ms);
+    sock->setSendTimeOut(MergeTimeout(options.send_timeout_ms, start_ms, options.total_timeout_ms));
+    sock->setRecvTimeOut(MergeTimeout(options.recv_timeout_ms, start_ms, options.total_timeout_ms));
     HttpConnection::ptr conn = std::make_shared<HttpConnection>(sock);
     int rt = conn->sendRequest(req);
     if (rt == 0)
@@ -308,12 +402,15 @@ HttpResult::ptr HttpConnection::DoRequest(HttpRequest::ptr req, Uri::ptr uri, ui
             "send request socket error errno=" + std::to_string(errno) +
                 " errstr=" + std::string(strerror(errno)));
     }
+    sock->setRecvTimeOut(MergeTimeout(options.recv_timeout_ms, start_ms, options.total_timeout_ms));
     auto rsp = conn->recvResponse();
     if (!rsp)
     {
-        return std::make_shared<HttpResult>((int)HttpResult::Error::TIMEOUT, nullptr,
-                                            "recv response timeout: " + addr->toString() +
-                                                " timeout_ms:" + std::to_string(timeout_ms));
+        return std::make_shared<HttpResult>(
+            (int)HttpResult::Error::TIMEOUT, nullptr,
+            "recv response timeout: " + addr->toString() +
+                " recv_timeout_ms:" + std::to_string(options.recv_timeout_ms) +
+                " total_timeout_ms:" + std::to_string(options.total_timeout_ms));
     }
     return std::make_shared<HttpResult>((int)HttpResult::Error::OK, rsp, "ok");
 }
@@ -497,7 +594,8 @@ HttpConnection::ptr HttpConnectionPool::getConnection(uint64_t timeout_ms)
                 notifyWaiter();
                 return nullptr;
             }
-            if (!sock->connect(addr))
+            uint64_t connect_timeout_ms = MergeTimeout(timeout_ms, start_ms, timeout_ms);
+            if (!sock->connect(addr, connect_timeout_ms))
             {
                 SYLAR_LOG_ERROR(g_logger) << "sock connect fail: " << *addr;
                 MutexType::Lock lock(m_mutex);
@@ -579,7 +677,15 @@ HttpResult::ptr HttpConnectionPool::doGet(const std::string &url,
                                           const std::map<std::string, std::string> &headers,
                                           const std::string &body)
 {
-    return doRequest(HttpMethod::GET, url, timeout_ms, headers, body);
+    return doGet(url, HttpRequestOptions::FromTimeout(timeout_ms), headers, body);
+}
+
+HttpResult::ptr HttpConnectionPool::doGet(const std::string &url,
+                                          const HttpRequestOptions &options,
+                                          const std::map<std::string, std::string> &headers,
+                                          const std::string &body)
+{
+    return doRequest(HttpMethod::GET, url, options, headers, body);
 }
 
 HttpResult::ptr HttpConnectionPool::doGet(Uri::ptr uri,
@@ -587,10 +693,18 @@ HttpResult::ptr HttpConnectionPool::doGet(Uri::ptr uri,
                                           const std::map<std::string, std::string> &headers,
                                           const std::string &body)
 {
+    return doGet(uri, HttpRequestOptions::FromTimeout(timeout_ms), headers, body);
+}
+
+HttpResult::ptr HttpConnectionPool::doGet(Uri::ptr uri,
+                                          const HttpRequestOptions &options,
+                                          const std::map<std::string, std::string> &headers,
+                                          const std::string &body)
+{
     std::stringstream ss;
     ss << uri->getPath() << (uri->getQuery().empty() ? "" : "?") << uri->getQuery()
        << (uri->getFragment().empty() ? "" : "#") << uri->getFragment();
-    return doGet(ss.str(), timeout_ms, headers, body);
+    return doGet(ss.str(), options, headers, body);
 }
 
 HttpResult::ptr HttpConnectionPool::doPost(const std::string &url,
@@ -598,7 +712,15 @@ HttpResult::ptr HttpConnectionPool::doPost(const std::string &url,
                                            const std::map<std::string, std::string> &headers,
                                            const std::string &body)
 {
-    return doRequest(HttpMethod::POST, url, timeout_ms, headers, body);
+    return doPost(url, HttpRequestOptions::FromTimeout(timeout_ms), headers, body);
+}
+
+HttpResult::ptr HttpConnectionPool::doPost(const std::string &url,
+                                           const HttpRequestOptions &options,
+                                           const std::map<std::string, std::string> &headers,
+                                           const std::string &body)
+{
+    return doRequest(HttpMethod::POST, url, options, headers, body);
 }
 
 HttpResult::ptr HttpConnectionPool::doPost(Uri::ptr uri,
@@ -606,15 +728,32 @@ HttpResult::ptr HttpConnectionPool::doPost(Uri::ptr uri,
                                            const std::map<std::string, std::string> &headers,
                                            const std::string &body)
 {
+    return doPost(uri, HttpRequestOptions::FromTimeout(timeout_ms), headers, body);
+}
+
+HttpResult::ptr HttpConnectionPool::doPost(Uri::ptr uri,
+                                           const HttpRequestOptions &options,
+                                           const std::map<std::string, std::string> &headers,
+                                           const std::string &body)
+{
     std::stringstream ss;
     ss << uri->getPath() << (uri->getQuery().empty() ? "" : "?") << uri->getQuery()
        << (uri->getFragment().empty() ? "" : "#") << uri->getFragment();
-    return doPost(ss.str(), timeout_ms, headers, body);
+    return doPost(ss.str(), options, headers, body);
 }
 
 HttpResult::ptr HttpConnectionPool::doRequest(HttpMethod method,
                                               const std::string &url,
                                               uint64_t timeout_ms,
+                                              const std::map<std::string, std::string> &headers,
+                                              const std::string &body)
+{
+    return doRequest(method, url, HttpRequestOptions::FromTimeout(timeout_ms), headers, body);
+}
+
+HttpResult::ptr HttpConnectionPool::doRequest(HttpMethod method,
+                                              const std::string &url,
+                                              const HttpRequestOptions &options,
                                               const std::map<std::string, std::string> &headers,
                                               const std::string &body)
 {
@@ -653,7 +792,7 @@ HttpResult::ptr HttpConnectionPool::doRequest(HttpMethod method,
         }
     }
     req->setBody(body);
-    return doRequest(req, timeout_ms);
+    return doRequest(req, options);
 }
 
 HttpResult::ptr HttpConnectionPool::doRequest(HttpMethod method,
@@ -662,15 +801,33 @@ HttpResult::ptr HttpConnectionPool::doRequest(HttpMethod method,
                                               const std::map<std::string, std::string> &headers,
                                               const std::string &body)
 {
+    return doRequest(method, uri, HttpRequestOptions::FromTimeout(timeout_ms), headers, body);
+}
+
+HttpResult::ptr HttpConnectionPool::doRequest(HttpMethod method,
+                                              Uri::ptr uri,
+                                              const HttpRequestOptions &options,
+                                              const std::map<std::string, std::string> &headers,
+                                              const std::string &body)
+{
     std::stringstream ss;
     ss << uri->getPath() << (uri->getQuery().empty() ? "" : "?") << uri->getQuery()
        << (uri->getFragment().empty() ? "" : "#") << uri->getFragment();
-    return doRequest(method, ss.str(), timeout_ms, headers, body);
+    return doRequest(method, ss.str(), options, headers, body);
 }
 
 HttpResult::ptr HttpConnectionPool::doRequest(HttpRequest::ptr req, uint64_t timeout_ms)
 {
-    auto conn = getConnection(timeout_ms);
+    return doRequest(req, HttpRequestOptions::FromTimeout(timeout_ms));
+}
+
+HttpResult::ptr HttpConnectionPool::doRequest(HttpRequest::ptr req,
+                                              const HttpRequestOptions &options)
+{
+    uint64_t start_ms = sylar::GetCurrentMS();
+    uint64_t connect_timeout_ms =
+        MergeTimeout(options.connect_timeout_ms, start_ms, options.total_timeout_ms);
+    auto conn = getConnection(connect_timeout_ms);
     if (!conn)
     {
         return std::make_shared<HttpResult>((int)HttpResult::Error::POOL_GET_CONNECTION, nullptr,
@@ -684,7 +841,8 @@ HttpResult::ptr HttpConnectionPool::doRequest(HttpRequest::ptr req, uint64_t tim
             (int)HttpResult::Error::POOL_INVALID_CONNECTION, nullptr,
             "pool host:" + m_host + " port:" + std::to_string(m_port));
     }
-    sock->setRecvTimeOut(timeout_ms);
+    sock->setSendTimeOut(MergeTimeout(options.send_timeout_ms, start_ms, options.total_timeout_ms));
+    sock->setRecvTimeOut(MergeTimeout(options.recv_timeout_ms, start_ms, options.total_timeout_ms));
     int rt = conn->sendRequest(req);
     if (rt == 0)
     {
@@ -699,13 +857,15 @@ HttpResult::ptr HttpConnectionPool::doRequest(HttpRequest::ptr req, uint64_t tim
             "send request socket error errno=" + std::to_string(errno) +
                 " errstr=" + std::string(strerror(errno)));
     }
+    sock->setRecvTimeOut(MergeTimeout(options.recv_timeout_ms, start_ms, options.total_timeout_ms));
     auto rsp = conn->recvResponse();
     if (!rsp)
     {
         return std::make_shared<HttpResult>(
             (int)HttpResult::Error::TIMEOUT, nullptr,
             "recv response timeout: " + sock->getRemoteAddress()->toString() +
-                " timeout_ms:" + std::to_string(timeout_ms));
+                " recv_timeout_ms:" + std::to_string(options.recv_timeout_ms) +
+                " total_timeout_ms:" + std::to_string(options.total_timeout_ms));
     }
     if (rsp->isClose())
     {
