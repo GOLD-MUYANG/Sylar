@@ -115,6 +115,11 @@ public:
         return m_lastBody;
     }
 
+    int getFlakyCount() const
+    {
+        return m_flakyCount.load();
+    }
+
 private:
     void accept_loop()
     {
@@ -184,6 +189,18 @@ private:
             usleep(300 * 1000);
             send_response(client, 200, "OK", "slow");
         }
+        else if (path == "/flaky")
+        {
+            int count = ++m_flakyCount;
+            if (count == 1)
+            {
+                send_response(client, 503, "Service Unavailable", "try-again");
+            }
+            else
+            {
+                send_response(client, 200, "OK", "retry-ok");
+            }
+        }
         else if (path == "/error")
         {
             send_response(client, 503, "Service Unavailable", "down");
@@ -235,6 +252,7 @@ private:
     int m_fd = -1;
     uint16_t m_port = 0;
     std::atomic<bool> m_stop{false};
+    std::atomic<int> m_flakyCount{0};
     std::thread m_thread;
     std::string m_lastMethod;
     std::string m_lastBody;
@@ -331,12 +349,41 @@ void test_static_get_reports_invalid_url()
     EXPECT_EQ(result->result, (int)sylar::http::HttpResult::Error::INVALID_URL);
 }
 
+void test_client_retries_idempotent_5xx()
+{
+    TestHttpServer server;
+    usleep(50 * 1000);
+
+    auto client = create_client(server.getPort());
+    EXPECT_TRUE(client != nullptr);
+    if (!client)
+    {
+        return;
+    }
+
+    sylar::http::HttpRequestOptions options = sylar::http::HttpRequestOptions::FromTimeout(1000);
+    sylar::http::HttpRetryOptions retry_options;
+    retry_options.max_retry = 1;
+    retry_options.retry_interval_ms = 10;
+
+    auto result = client->get("/flaky", options, retry_options);
+    EXPECT_TRUE(result != nullptr);
+    EXPECT_EQ(result->result, (int)sylar::http::HttpResult::Error::OK);
+    EXPECT_TRUE(result->response != nullptr);
+    if (result->response)
+    {
+        EXPECT_EQ(result->response->getBody(), std::string("retry-ok"));
+    }
+    EXPECT_EQ(server.getFlakyCount(), 2);
+}
+
 void run_tests()
 {
     test_client_get_and_post_use_pool();
     test_client_maps_http_status_error();
     test_client_maps_recv_timeout();
     test_static_get_reports_invalid_url();
+    test_client_retries_idempotent_5xx();
     SYLAR_LOG_INFO(g_logger) << "run_tests over";
 }
 

@@ -14,6 +14,33 @@ namespace http
 {
 
 /**
+ * @brief HTTP 客户端失败重试参数。
+ *
+ * HttpRequestOptions 只描述单次请求的超时；这里描述多次请求之间的重试策略。
+ */
+struct HttpRetryOptions
+{
+    enum class Backoff
+    {
+        FIXED = 0,
+        LINEAR = 1,
+        EXPONENTIAL = 2,
+    };
+
+    /// 最大重试次数，不包含首次请求。0 表示不重试，保持旧行为。
+    uint32_t max_retry = 0;
+
+    /// 每次重试前等待的基础间隔，单位毫秒。0 表示立即重试。
+    uint64_t retry_interval_ms = 0;
+
+    /// 重试间隔退避策略。
+    Backoff backoff = Backoff::FIXED;
+
+    /// 是否允许 POST/PATCH 等非幂等请求自动重试，默认关闭。
+    bool retry_non_idempotent = false;
+};
+
+/**
  * @brief 面向业务层的 HTTP 客户端封装。
  *
  * 这个类不是直接操作 Socket 的底层连接类，而是对 HttpConnectionPool
@@ -77,6 +104,12 @@ public:
                                    const HttpRequestOptions &options,
                                    const std::map<std::string, std::string> &headers = {},
                                    const std::string &body = "");
+    static HttpResult::ptr Request(HttpMethod method,
+                                   const std::string &url,
+                                   const HttpRequestOptions &options,
+                                   const HttpRetryOptions &retry_options,
+                                   const std::map<std::string, std::string> &headers = {},
+                                   const std::string &body = "");
 
     /**
      * @brief 静态 GET 请求，timeout_ms 版本。
@@ -93,6 +126,11 @@ public:
                                const HttpRequestOptions &options,
                                const std::map<std::string, std::string> &headers = {},
                                const std::string &body = "");
+    static HttpResult::ptr Get(const std::string &url,
+                               const HttpRequestOptions &options,
+                               const HttpRetryOptions &retry_options,
+                               const std::map<std::string, std::string> &headers = {},
+                               const std::string &body = "");
 
     /**
      * @brief 静态 POST 请求，timeout_ms 版本。
@@ -107,6 +145,11 @@ public:
      */
     static HttpResult::ptr Post(const std::string &url,
                                 const HttpRequestOptions &options,
+                                const std::map<std::string, std::string> &headers = {},
+                                const std::string &body = "");
+    static HttpResult::ptr Post(const std::string &url,
+                                const HttpRequestOptions &options,
+                                const HttpRetryOptions &retry_options,
                                 const std::map<std::string, std::string> &headers = {},
                                 const std::string &body = "");
 
@@ -130,6 +173,12 @@ public:
                             const HttpRequestOptions &options,
                             const std::map<std::string, std::string> &headers = {},
                             const std::string &body = "");
+    HttpResult::ptr request(HttpMethod method,
+                            const std::string &path,
+                            const HttpRequestOptions &options,
+                            const HttpRetryOptions &retry_options,
+                            const std::map<std::string, std::string> &headers = {},
+                            const std::string &body = "");
 
     /**
      * @brief 实例 GET 请求，timeout_ms 版本。
@@ -146,6 +195,11 @@ public:
                         const HttpRequestOptions &options,
                         const std::map<std::string, std::string> &headers = {},
                         const std::string &body = "");
+    HttpResult::ptr get(const std::string &path,
+                        const HttpRequestOptions &options,
+                        const HttpRetryOptions &retry_options,
+                        const std::map<std::string, std::string> &headers = {},
+                        const std::string &body = "");
 
     /**
      * @brief 实例 POST 请求，timeout_ms 版本。
@@ -160,6 +214,11 @@ public:
      */
     HttpResult::ptr post(const std::string &path,
                          const HttpRequestOptions &options,
+                         const std::map<std::string, std::string> &headers = {},
+                         const std::string &body = "");
+    HttpResult::ptr post(const std::string &path,
+                         const HttpRequestOptions &options,
+                         const HttpRetryOptions &retry_options,
                          const std::map<std::string, std::string> &headers = {},
                          const std::string &body = "");
 
@@ -193,6 +252,18 @@ private:
      * 所以这里把错误归一化成更好理解的类型。
      */
     static HttpResult::ptr NormalizeResult(HttpResult::ptr result);
+
+    /**
+     * @brief 判断当前错误是否应该触发下一次重试。
+     */
+    static bool ShouldRetry(HttpMethod method,
+                            const HttpResult::ptr &result,
+                            const HttpRetryOptions &retry_options);
+
+    /**
+     * @brief 计算第 retry_index 次重试前的等待时间。
+     */
+    static uint64_t GetRetryInterval(const HttpRetryOptions &retry_options, uint32_t retry_index);
 
 private:
     /// Create() 时解析出的 URI，保存 scheme、host、port、path 等信息。

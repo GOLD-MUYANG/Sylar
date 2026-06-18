@@ -1,6 +1,8 @@
 #include "http_client.h"
 #include "sylar/log.h"
+#include <limits>
 #include <sstream> // std::stringstream，用于拼接请求 path
+#include <unistd.h>
 
 namespace sylar
 {
@@ -85,6 +87,16 @@ HttpResult::ptr HttpClient::Request(HttpMethod method,
                                     const std::map<std::string, std::string> &headers,
                                     const std::string &body)
 {
+    return Request(method, url, options, HttpRetryOptions(), headers, body);
+}
+
+HttpResult::ptr HttpClient::Request(HttpMethod method,
+                                    const std::string &url,
+                                    const HttpRequestOptions &options,
+                                    const HttpRetryOptions &retry_options,
+                                    const std::map<std::string, std::string> &headers,
+                                    const std::string &body)
+{
     // 先解析一遍 URL，主要为了校验 URL，并提取 path/query/fragment。
     Uri::ptr uri = Uri::Create(url);
     if (!uri || uri->getHost().empty())
@@ -101,7 +113,7 @@ HttpResult::ptr HttpClient::Request(HttpMethod method,
 
     // HTTP 请求行里一般只放 path + query，而不是完整 URL。
     // 例如完整 URL 是 http://example.com/a?x=1，真正请求 path 是 /a?x=1。
-    return client->request(method, BuildPath(uri), options, headers, body);
+    return client->request(method, BuildPath(uri), options, retry_options, headers, body);
 }
 
 /**
@@ -128,6 +140,15 @@ HttpResult::ptr HttpClient::Get(const std::string &url,
     return Request(HttpMethod::GET, url, options, headers, body);
 }
 
+HttpResult::ptr HttpClient::Get(const std::string &url,
+                                const HttpRequestOptions &options,
+                                const HttpRetryOptions &retry_options,
+                                const std::map<std::string, std::string> &headers,
+                                const std::string &body)
+{
+    return Request(HttpMethod::GET, url, options, retry_options, headers, body);
+}
+
 /**
  * @brief 静态 POST 的 timeout_ms 版本。
  */
@@ -150,6 +171,15 @@ HttpResult::ptr HttpClient::Post(const std::string &url,
                                  const std::string &body)
 {
     return Request(HttpMethod::POST, url, options, headers, body);
+}
+
+HttpResult::ptr HttpClient::Post(const std::string &url,
+                                 const HttpRequestOptions &options,
+                                 const HttpRetryOptions &retry_options,
+                                 const std::map<std::string, std::string> &headers,
+                                 const std::string &body)
+{
+    return Request(HttpMethod::POST, url, options, retry_options, headers, body);
 }
 
 /**
@@ -177,6 +207,16 @@ HttpResult::ptr HttpClient::request(HttpMethod method,
                                     const std::map<std::string, std::string> &headers,
                                     const std::string &body)
 {
+    return request(method, path, options, HttpRetryOptions(), headers, body);
+}
+
+HttpResult::ptr HttpClient::request(HttpMethod method,
+                                    const std::string &path,
+                                    const HttpRequestOptions &options,
+                                    const HttpRetryOptions &retry_options,
+                                    const std::map<std::string, std::string> &headers,
+                                    const std::string &body)
+{
     // 理论上通过 Create() 创建的 client 都应该有连接池。
     // 这里仍然做防御式判断，避免空指针崩溃。
     if (!m_pool)
@@ -192,9 +232,30 @@ HttpResult::ptr HttpClient::request(HttpMethod method,
     SYLAR_LOG_DEBUG(g_logger) << "HttpClient request method=" << HttpMethodToString(method)
                               << " path=" << request_path;
 
-    // 真正发送请求的是连接池。
-    // HttpClient 只负责封装参数、调用连接池、整理返回结果。
-    return NormalizeResult(m_pool->doRequest(method, request_path, options, headers, body));
+    // 真正发送请求的是连接池。HttpClient 在每次尝试后整理错误，再决定是否重试。
+    HttpResult::ptr result;
+    for (uint32_t retry_index = 0; retry_index <= retry_options.max_retry; ++retry_index)
+    {
+        result = NormalizeResult(m_pool->doRequest(method, request_path, options, headers, body));
+        if (retry_index >= retry_options.max_retry ||
+            !ShouldRetry(method, result, retry_options))
+        {
+            return result;
+        }
+
+        uint64_t interval_ms = GetRetryInterval(retry_options, retry_index + 1);
+        SYLAR_LOG_INFO(g_logger) << "HttpClient retry method=" << HttpMethodToString(method)
+                                 << " path=" << request_path << " retry_index="
+                                 << (retry_index + 1) << " result="
+                                 << (result ? result->result : -1)
+                                 << " interval_ms=" << interval_ms;
+        if (interval_ms > 0)
+        {
+            usleep(interval_ms * 1000);
+        }
+    }
+
+    return result;
 }
 
 /**
@@ -219,6 +280,15 @@ HttpResult::ptr HttpClient::get(const std::string &path,
     return request(HttpMethod::GET, path, options, headers, body);
 }
 
+HttpResult::ptr HttpClient::get(const std::string &path,
+                                const HttpRequestOptions &options,
+                                const HttpRetryOptions &retry_options,
+                                const std::map<std::string, std::string> &headers,
+                                const std::string &body)
+{
+    return request(HttpMethod::GET, path, options, retry_options, headers, body);
+}
+
 /**
  * @brief 实例 POST 的 timeout_ms 版本。
  */
@@ -239,6 +309,15 @@ HttpResult::ptr HttpClient::post(const std::string &path,
                                  const std::string &body)
 {
     return request(HttpMethod::POST, path, options, headers, body);
+}
+
+HttpResult::ptr HttpClient::post(const std::string &path,
+                                 const HttpRequestOptions &options,
+                                 const HttpRetryOptions &retry_options,
+                                 const std::map<std::string, std::string> &headers,
+                                 const std::string &body)
+{
+    return request(HttpMethod::POST, path, options, retry_options, headers, body);
 }
 
 /**
@@ -329,6 +408,84 @@ HttpResult::ptr HttpClient::NormalizeResult(HttpResult::ptr result)
     }
 
     return result;
+}
+
+bool HttpClient::ShouldRetry(HttpMethod method,
+                             const HttpResult::ptr &result,
+                             const HttpRetryOptions &retry_options)
+{
+    // 默认只重试幂等方法；POST/RPC 类请求需要调用方显式允许。
+    bool idempotent = method == HttpMethod::GET || method == HttpMethod::HEAD ||
+                      method == HttpMethod::PUT || method == HttpMethod::DELETE ||
+                      method == HttpMethod::OPTIONS || method == HttpMethod::TRACE;
+    if (!idempotent && !retry_options.retry_non_idempotent)
+    {
+        return false;
+    }
+
+    if (!result)
+    {
+        return true;
+    }
+
+    HttpResult::Error error = (HttpResult::Error)result->result;
+    switch (error)
+    {
+    case HttpResult::Error::CONNECT_FAIL:
+    case HttpResult::Error::CONNECT_TIMEOUT:
+    case HttpResult::Error::RECV_TIMEOUT:
+        return true;
+
+    case HttpResult::Error::HTTP_STATUS_ERROR:
+        if (!result->response)
+        {
+            return false;
+        }
+        return result->response->getStatus() == HttpStatus::INTERNAL_SERVER_ERROR ||
+               result->response->getStatus() == HttpStatus::BAD_GATEWAY ||
+               result->response->getStatus() == HttpStatus::SERVICE_UNAVAILABLE ||
+               result->response->getStatus() == HttpStatus::GATEWAY_TIMEOUT;
+
+    default:
+        return false;
+    }
+}
+
+uint64_t HttpClient::GetRetryInterval(const HttpRetryOptions &retry_options,
+                                      uint32_t retry_index)
+{
+    if (retry_options.retry_interval_ms == 0 || retry_index == 0)
+    {
+        return 0;
+    }
+
+    uint64_t multiplier = 1;
+    switch (retry_options.backoff)
+    {
+    case HttpRetryOptions::Backoff::FIXED:
+        multiplier = 1;
+        break;
+    case HttpRetryOptions::Backoff::LINEAR:
+        multiplier = retry_index;
+        break;
+    case HttpRetryOptions::Backoff::EXPONENTIAL:
+        for (uint32_t i = 1; i < retry_index; ++i)
+        {
+            if (multiplier > std::numeric_limits<uint64_t>::max() / 2)
+            {
+                multiplier = std::numeric_limits<uint64_t>::max();
+                break;
+            }
+            multiplier *= 2;
+        }
+        break;
+    }
+
+    if (retry_options.retry_interval_ms > std::numeric_limits<uint64_t>::max() / multiplier)
+    {
+        return std::numeric_limits<uint64_t>::max();
+    }
+    return retry_options.retry_interval_ms * multiplier;
 }
 
 } // namespace http
