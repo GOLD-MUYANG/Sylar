@@ -44,6 +44,18 @@ struct HttpResult
         POOL_GET_CONNECTION = 8,
         /// 无效的连接
         POOL_INVALID_CONNECTION = 9,
+        /// 连接超时
+        CONNECT_TIMEOUT = 10,
+        /// 发送失败
+        SEND_FAIL = 11,
+        /// 发送超时
+        SEND_TIMEOUT = 12,
+        /// 接收响应超时
+        RECV_TIMEOUT = 13,
+        /// 响应解析失败
+        RESPONSE_PARSE_FAIL = 14,
+        /// HTTP响应状态码错误
+        HTTP_STATUS_ERROR = 15,
     };
 
     /**
