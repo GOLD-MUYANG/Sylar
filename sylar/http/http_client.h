@@ -13,6 +13,8 @@ namespace sylar
 namespace http
 {
 
+class HttpLoadBalanceClient;
+
 /**
  * @brief HTTP 客户端失败重试参数。
  *
@@ -58,6 +60,8 @@ struct HttpRetryOptions
  */
 class HttpClient
 {
+    friend class HttpLoadBalanceClient;
+
 public:
     typedef std::shared_ptr<HttpClient> ptr;
 

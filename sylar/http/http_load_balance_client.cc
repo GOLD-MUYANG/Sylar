@@ -1,0 +1,300 @@
+#include "http_load_balance_client.h"
+#include "sylar/log.h"
+#include <cstdlib>
+#include <limits>
+#include <unistd.h>
+
+namespace sylar
+{
+namespace http
+{
+
+static sylar::Logger::ptr g_logger = SYLAR_LOG_NAME("system");
+
+HttpEndpoint::ptr HttpEndpoint::Create(const std::string &host,
+                                       uint32_t port,
+                                       bool ssl,
+                                       uint32_t weight,
+                                       HttpEndpointStatus status,
+                                       const std::string &vhost,
+                                       uint32_t max_size,
+                                       uint32_t max_alive_time,
+                                       uint32_t max_request)
+{
+    if (host.empty())
+    {
+        SYLAR_LOG_ERROR(g_logger) << "HttpEndpoint empty host";
+        return nullptr;
+    }
+
+    HttpConnectionPool::ptr pool(
+        new HttpConnectionPool(host, vhost, port, ssl, max_size, max_alive_time, max_request));
+    return HttpEndpoint::ptr(new HttpEndpoint(host, port, ssl, weight, status, pool));
+}
+
+HttpEndpoint::HttpEndpoint(const std::string &host,
+                           uint32_t port,
+                           bool ssl,
+                           uint32_t weight,
+                           HttpEndpointStatus status,
+                           HttpConnectionPool::ptr pool)
+    : m_host(host), m_port(port), m_ssl(ssl), m_weight(weight == 0 ? 1 : weight), m_status(status),
+      m_pool(pool)
+{
+}
+
+HttpEndpointStatus HttpEndpoint::getStatus() const
+{
+    MutexType::Lock lock(m_mutex);
+    return m_status;
+}
+
+void HttpEndpoint::setStatus(HttpEndpointStatus status)
+{
+    MutexType::Lock lock(m_mutex);
+    m_status = status;
+}
+
+HttpLoadBalanceClient::ptr
+HttpLoadBalanceClient::Create(const std::vector<HttpEndpoint::ptr> &endpoints,
+                              HttpLoadBalanceStrategy strategy)
+{
+    std::vector<HttpEndpoint::ptr> valid;
+    for (auto &endpoint : endpoints)
+    {
+        if (endpoint && endpoint->m_pool)
+        {
+            valid.push_back(endpoint);
+        }
+    }
+
+    if (valid.empty())
+    {
+        SYLAR_LOG_ERROR(g_logger) << "HttpLoadBalanceClient empty endpoints";
+        return nullptr;
+    }
+
+    return HttpLoadBalanceClient::ptr(new HttpLoadBalanceClient(valid, strategy));
+}
+
+HttpLoadBalanceClient::HttpLoadBalanceClient(const std::vector<HttpEndpoint::ptr> &endpoints,
+                                             HttpLoadBalanceStrategy strategy)
+    : m_endpoints(endpoints), m_strategy(strategy)
+{
+}
+
+HttpResult::ptr HttpLoadBalanceClient::request(HttpMethod method,
+                                               const std::string &path,
+                                               uint64_t timeout_ms,
+                                               const std::map<std::string, std::string> &headers,
+                                               const std::string &body)
+{
+    return request(method, path, HttpRequestOptions::FromTimeout(timeout_ms), headers, body);
+}
+
+HttpResult::ptr HttpLoadBalanceClient::request(HttpMethod method,
+                                               const std::string &path,
+                                               const HttpRequestOptions &options,
+                                               const std::map<std::string, std::string> &headers,
+                                               const std::string &body)
+{
+    return request(method, path, options, HttpRetryOptions(), headers, body);
+}
+
+HttpResult::ptr HttpLoadBalanceClient::request(HttpMethod method,
+                                               const std::string &path,
+                                               const HttpRequestOptions &options,
+                                               const HttpRetryOptions &retry_options,
+                                               const std::map<std::string, std::string> &headers,
+                                               const std::string &body)
+{
+    std::string request_path = path.empty() ? "/" : path;
+    HttpResult::ptr result;
+
+    for (uint32_t retry_index = 0; retry_index <= retry_options.max_retry; ++retry_index)
+    {
+        //选择一个终端
+        HttpEndpoint::ptr endpoint = selectEndpoint();
+        if (!endpoint)
+        {
+            return std::make_shared<HttpResult>((int)HttpResult::Error::CONNECT_FAIL, nullptr,
+                                                "no available endpoint");
+        }
+
+        SYLAR_LOG_DEBUG(g_logger) << "HttpLoadBalanceClient request method="
+                                  << HttpMethodToString(method)
+                                  << " endpoint=" << endpoint->getHost() << ":"
+                                  << endpoint->getPort() << " path=" << request_path;
+        //用选择出来的终端去发请求
+        result = HttpClient::NormalizeResult(
+            endpoint->m_pool->doRequest(method, request_path, options, headers, body));
+        if (retry_index >= retry_options.max_retry ||
+            !HttpClient::ShouldRetry(method, result, retry_options))
+        {
+            return result;
+        }
+
+        uint64_t interval_ms = HttpClient::GetRetryInterval(retry_options, retry_index + 1);
+        SYLAR_LOG_INFO(g_logger) << "HttpLoadBalanceClient retry method="
+                                 << HttpMethodToString(method) << " path=" << request_path
+                                 << " retry_index=" << (retry_index + 1)
+                                 << " result=" << (result ? result->result : -1)
+                                 << " interval_ms=" << interval_ms;
+        if (interval_ms > 0)
+        {
+            usleep(interval_ms * 1000);
+        }
+    }
+
+    return result;
+}
+
+HttpResult::ptr HttpLoadBalanceClient::get(const std::string &path,
+                                           uint64_t timeout_ms,
+                                           const std::map<std::string, std::string> &headers,
+                                           const std::string &body)
+{
+    return get(path, HttpRequestOptions::FromTimeout(timeout_ms), headers, body);
+}
+
+HttpResult::ptr HttpLoadBalanceClient::get(const std::string &path,
+                                           const HttpRequestOptions &options,
+                                           const std::map<std::string, std::string> &headers,
+                                           const std::string &body)
+{
+    return request(HttpMethod::GET, path, options, headers, body);
+}
+
+HttpResult::ptr HttpLoadBalanceClient::get(const std::string &path,
+                                           const HttpRequestOptions &options,
+                                           const HttpRetryOptions &retry_options,
+                                           const std::map<std::string, std::string> &headers,
+                                           const std::string &body)
+{
+    return request(HttpMethod::GET, path, options, retry_options, headers, body);
+}
+
+HttpResult::ptr HttpLoadBalanceClient::post(const std::string &path,
+                                            uint64_t timeout_ms,
+                                            const std::map<std::string, std::string> &headers,
+                                            const std::string &body)
+{
+    return post(path, HttpRequestOptions::FromTimeout(timeout_ms), headers, body);
+}
+
+HttpResult::ptr HttpLoadBalanceClient::post(const std::string &path,
+                                            const HttpRequestOptions &options,
+                                            const std::map<std::string, std::string> &headers,
+                                            const std::string &body)
+{
+    return request(HttpMethod::POST, path, options, headers, body);
+}
+
+HttpResult::ptr HttpLoadBalanceClient::post(const std::string &path,
+                                            const HttpRequestOptions &options,
+                                            const HttpRetryOptions &retry_options,
+                                            const std::map<std::string, std::string> &headers,
+                                            const std::string &body)
+{
+    return request(HttpMethod::POST, path, options, retry_options, headers, body);
+}
+
+HttpEndpoint::ptr HttpLoadBalanceClient::selectEndpoint()
+{
+    if (m_strategy == HttpLoadBalanceStrategy::RANDOM)
+    {
+        return selectRandom();
+    }
+    return selectRoundRobin();
+}
+
+HttpEndpoint::ptr HttpLoadBalanceClient::selectRoundRobin()
+{
+    // 加锁，保护 m_endpoints 和 m_nextIndex。
+    // 因为多个线程可能同时调用 selectRoundRobin，
+    // 如果不加锁，m_nextIndex 可能被并发修改，导致选择混乱。
+    MutexType::Lock lock(m_mutex);
+
+    // 如果当前没有任何 Endpoint，直接返回空。
+    if (m_endpoints.empty())
+    {
+        return nullptr;
+    }
+
+    // 记录 Endpoint 总数量。
+    // 后面最多扫描 size 次，也就是最多扫描一整圈。
+    size_t size = m_endpoints.size();
+
+    // 从 m_nextIndex 开始，最多遍历一圈。
+    // 目的是找到第一个状态为 UP 的 Endpoint。
+    for (size_t i = 0; i < size; ++i)
+    {
+        // 计算当前要检查的下标。
+        //
+        // m_nextIndex 表示下一次应该优先尝试的位置。
+        // i 表示从这个位置往后偏移几个节点。
+        // % size 用来实现循环数组效果：
+        // 例如 size = 3，下标超过 2 后又回到 0。
+        size_t index = (m_nextIndex + i) % size;
+
+        // 取出当前下标对应的 Endpoint。
+        HttpEndpoint::ptr endpoint = m_endpoints[index];
+
+        // 如果 endpoint 不为空，并且状态是 UP，
+        // 说明这个节点当前可以被使用。
+        if (endpoint && endpoint->getStatus() == HttpEndpointStatus::UP)
+        {
+            // 更新下一次轮询的起点。
+            //
+            // 假设这次选中了 index，
+            // 那么下次应该从 index + 1 开始尝试，
+            // 避免每次都选同一个节点。
+            m_nextIndex = (index + 1) % size;
+
+            // 返回选中的可用 Endpoint。
+            return endpoint;
+        }
+    }
+
+    // 如果扫描了一整圈都没有找到 UP 的节点，
+    // 说明所有 Endpoint 都不可用。
+    return nullptr;
+}
+
+HttpEndpoint::ptr HttpLoadBalanceClient::selectRandom()
+{
+    // 加锁，保护 m_endpoints。
+    // 因为其他线程可能正在增删 Endpoint 或修改 Endpoint 状态。
+    MutexType::Lock lock(m_mutex);
+
+    // 用来保存当前可用的 Endpoint。
+    std::vector<HttpEndpoint::ptr> available;
+
+    // 遍历所有 Endpoint。
+    for (auto &endpoint : m_endpoints)
+    {
+        // 只把非空并且状态为 UP 的 Endpoint 放入 available。
+        if (endpoint && endpoint->getStatus() == HttpEndpointStatus::UP)
+        {
+            available.push_back(endpoint);
+        }
+    }
+
+    // 如果没有任何可用节点，返回空。
+    if (available.empty())
+    {
+        return nullptr;
+    }
+
+    // 从 available 里面随机选一个。
+    //
+    // rand() % available.size() 会生成一个范围：
+    // [0, available.size() - 1]
+    //
+    // 例如 available 有 3 个节点：
+    // rand() % 3 的结果可能是 0、1、2。
+    return available[rand() % available.size()];
+}
+
+} // namespace http
+} // namespace sylar
