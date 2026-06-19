@@ -44,7 +44,8 @@ namespace
 class NamedHttpServer
 {
 public:
-    explicit NamedHttpServer(const std::string &name) : m_name(name)
+    explicit NamedHttpServer(const std::string &name, uint32_t response_delay_ms = 0)
+        : m_name(name), m_responseDelayMs(response_delay_ms)
     {
         m_fd = socket_f(AF_INET, SOCK_STREAM, 0);
         EXPECT_TRUE(m_fd >= 0);
@@ -130,21 +131,26 @@ private:
            << "content-length: " << m_name.size() << "\r\n\r\n"
            << m_name;
         std::string rsp = ss.str();
+        if (m_responseDelayMs > 0)
+        {
+            usleep(m_responseDelayMs * 1000);
+        }
         send_f(client, rsp.c_str(), rsp.size(), 0);
         close_f(client);
     }
 
 private:
     std::string m_name;
+    uint32_t m_responseDelayMs = 0;
     int m_fd = -1;
     uint16_t m_port = 0;
     std::atomic<bool> m_stop{false};
     std::thread m_thread;
 };
 
-sylar::http::HttpEndpoint::ptr create_endpoint(uint16_t port)
+sylar::http::HttpEndpoint::ptr create_endpoint(uint16_t port, uint32_t weight = 1)
 {
-    return sylar::http::HttpEndpoint::Create("127.0.0.1", port, false, 1,
+    return sylar::http::HttpEndpoint::Create("127.0.0.1", port, false, weight,
                                              sylar::http::HttpEndpointStatus::UP, "", 2, 30000,
                                              10);
 }
@@ -236,11 +242,100 @@ void test_random_strategy_uses_available_endpoint()
     expect_ok_body(result, "random-ok");
 }
 
+void test_weighted_round_robin_uses_endpoint_weight()
+{
+    NamedHttpServer first("first");
+    NamedHttpServer second("second");
+    usleep(50 * 1000);
+
+    std::vector<sylar::http::HttpEndpoint::ptr> endpoints;
+    endpoints.push_back(create_endpoint(first.getPort(), 2));
+    endpoints.push_back(create_endpoint(second.getPort(), 1));
+
+    auto client = sylar::http::HttpLoadBalanceClient::Create(
+        endpoints, sylar::http::HttpLoadBalanceStrategy::WEIGHTED_ROUND_ROBIN);
+    EXPECT_TRUE(client != nullptr);
+    if (!client)
+    {
+        return;
+    }
+
+    expect_ok_body(client->get("/ok", 1000), "first");
+    expect_ok_body(client->get("/ok", 1000), "first");
+    expect_ok_body(client->get("/ok", 1000), "second");
+    expect_ok_body(client->get("/ok", 1000), "first");
+}
+
+void test_least_connection_uses_less_busy_endpoint()
+{
+    NamedHttpServer slow("slow", 200);
+    NamedHttpServer fast("fast");
+    usleep(50 * 1000);
+
+    std::vector<sylar::http::HttpEndpoint::ptr> endpoints;
+    endpoints.push_back(create_endpoint(slow.getPort()));
+    endpoints.push_back(create_endpoint(fast.getPort()));
+
+    auto client = sylar::http::HttpLoadBalanceClient::Create(
+        endpoints, sylar::http::HttpLoadBalanceStrategy::LEAST_CONNECTION);
+    EXPECT_TRUE(client != nullptr);
+    if (!client)
+    {
+        return;
+    }
+
+    sylar::http::HttpResult::ptr slow_result;
+    sylar::http::HttpResult::ptr fast_result;
+
+    sylar::IOManager *iom = sylar::IOManager::GetThis();
+    iom->schedule([&]() { slow_result = client->get("/ok", 1000); });
+    usleep(50 * 1000);
+    fast_result = client->get("/ok", 1000);
+
+    usleep(250 * 1000);
+    expect_ok_body(fast_result, "fast");
+    expect_ok_body(slow_result, "slow");
+}
+
+void test_health_check_marks_failed_endpoint_down()
+{
+    NamedHttpServer available("available");
+    std::shared_ptr<NamedHttpServer> unavailable(new NamedHttpServer("unavailable"));
+    uint16_t unavailable_port = unavailable->getPort();
+    usleep(50 * 1000);
+
+    std::vector<sylar::http::HttpEndpoint::ptr> endpoints;
+    auto up = create_endpoint(available.getPort());
+    auto down = create_endpoint(unavailable_port);
+    endpoints.push_back(up);
+    endpoints.push_back(down);
+
+    auto client = sylar::http::HttpLoadBalanceClient::Create(
+        endpoints, sylar::http::HttpLoadBalanceStrategy::ROUND_ROBIN);
+    EXPECT_TRUE(client != nullptr);
+    if (!client)
+    {
+        return;
+    }
+
+    unavailable.reset();
+    size_t available_count =
+        client->checkHealth("/ok", sylar::http::HttpRequestOptions::FromTimeout(200));
+
+    EXPECT_EQ(available_count, (size_t)1);
+    EXPECT_EQ((int)up->getStatus(), (int)sylar::http::HttpEndpointStatus::UP);
+    EXPECT_EQ((int)down->getStatus(), (int)sylar::http::HttpEndpointStatus::DOWN);
+    expect_ok_body(client->get("/ok", 1000), "available");
+}
+
 void run_tests()
 {
     test_round_robin_rotates_between_endpoints();
     test_down_endpoint_is_skipped();
     test_random_strategy_uses_available_endpoint();
+    test_weighted_round_robin_uses_endpoint_weight();
+    test_least_connection_uses_less_busy_endpoint();
+    test_health_check_marks_failed_endpoint_down();
     SYLAR_LOG_INFO(g_logger) << "run_tests over";
 }
 

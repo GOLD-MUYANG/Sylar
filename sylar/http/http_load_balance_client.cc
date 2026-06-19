@@ -55,6 +55,27 @@ void HttpEndpoint::setStatus(HttpEndpointStatus status)
     m_status = status;
 }
 
+uint32_t HttpEndpoint::getActiveRequestCount() const
+{
+    MutexType::Lock lock(m_mutex);
+    return m_activeRequests;
+}
+
+void HttpEndpoint::beginRequest()
+{
+    MutexType::Lock lock(m_mutex);
+    ++m_activeRequests;
+}
+
+void HttpEndpoint::endRequest()
+{
+    MutexType::Lock lock(m_mutex);
+    if (m_activeRequests > 0)
+    {
+        --m_activeRequests;
+    }
+}
+
 HttpLoadBalanceClient::ptr
 HttpLoadBalanceClient::Create(const std::vector<HttpEndpoint::ptr> &endpoints,
                               HttpLoadBalanceStrategy strategy)
@@ -120,14 +141,26 @@ HttpResult::ptr HttpLoadBalanceClient::request(HttpMethod method,
             return std::make_shared<HttpResult>((int)HttpResult::Error::CONNECT_FAIL, nullptr,
                                                 "no available endpoint");
         }
-
         SYLAR_LOG_DEBUG(g_logger) << "HttpLoadBalanceClient request method="
                                   << HttpMethodToString(method)
                                   << " endpoint=" << endpoint->getHost() << ":"
                                   << endpoint->getPort() << " path=" << request_path;
-        //用选择出来的终端去发请求
-        result = HttpClient::NormalizeResult(
-            endpoint->m_pool->doRequest(method, request_path, options, headers, body));
+        // 用选择出来的终端发请求；selectEndpoint() 已经占用活跃请求名额。
+        {
+            struct RequestGuard
+            {
+                explicit RequestGuard(HttpEndpoint::ptr ep) : endpoint(ep)
+                {
+                }
+                ~RequestGuard()
+                {
+                    endpoint->endRequest();
+                }
+                HttpEndpoint::ptr endpoint;
+            } guard(endpoint);
+            result = HttpClient::NormalizeResult(
+                endpoint->m_pool->doRequest(method, request_path, options, headers, body));
+        }
         if (retry_index >= retry_options.max_retry ||
             !HttpClient::ShouldRetry(method, result, retry_options))
         {
@@ -199,13 +232,59 @@ HttpResult::ptr HttpLoadBalanceClient::post(const std::string &path,
     return request(HttpMethod::POST, path, options, retry_options, headers, body);
 }
 
+size_t HttpLoadBalanceClient::checkHealth(const std::string &path, uint64_t timeout_ms)
+{
+    return checkHealth(path, HttpRequestOptions::FromTimeout(timeout_ms));
+}
+
+size_t HttpLoadBalanceClient::checkHealth(const std::string &path,
+                                          const HttpRequestOptions &options)
+{
+    std::string request_path = path.empty() ? "/" : path;
+    std::vector<HttpEndpoint::ptr> endpoints;
+    {
+        MutexType::Lock lock(m_mutex);
+        endpoints = m_endpoints;
+    }
+
+    size_t available = 0;
+    for (auto &endpoint : endpoints)
+    {
+        if (!endpoint || !endpoint->m_pool)
+        {
+            continue;
+        }
+
+        //对这些终端做一次短的请求，如果能正常返回消息，那么就认为是UP状态，否则认为是DOWN状态
+        HttpResult::ptr result = HttpClient::NormalizeResult(
+            endpoint->m_pool->doRequest(HttpMethod::GET, request_path, options));
+        if (result && result->result == (int)HttpResult::Error::OK)
+        {
+            endpoint->setStatus(HttpEndpointStatus::UP);
+            ++available;
+        }
+        else
+        {
+            endpoint->setStatus(HttpEndpointStatus::DOWN);
+        }
+    }
+    return available;
+}
+
 HttpEndpoint::ptr HttpLoadBalanceClient::selectEndpoint()
 {
-    if (m_strategy == HttpLoadBalanceStrategy::RANDOM)
+    switch (m_strategy)
     {
+    case HttpLoadBalanceStrategy::RANDOM:
         return selectRandom();
+    case HttpLoadBalanceStrategy::WEIGHTED_ROUND_ROBIN:
+        return selectWeightedRoundRobin();
+    case HttpLoadBalanceStrategy::LEAST_CONNECTION:
+        return selectLeastConnection();
+    case HttpLoadBalanceStrategy::ROUND_ROBIN:
+    default:
+        return selectRoundRobin();
     }
-    return selectRoundRobin();
 }
 
 HttpEndpoint::ptr HttpLoadBalanceClient::selectRoundRobin()
@@ -252,6 +331,7 @@ HttpEndpoint::ptr HttpLoadBalanceClient::selectRoundRobin()
             m_nextIndex = (index + 1) % size;
 
             // 返回选中的可用 Endpoint。
+            endpoint->beginRequest();
             return endpoint;
         }
     }
@@ -293,7 +373,131 @@ HttpEndpoint::ptr HttpLoadBalanceClient::selectRandom()
     //
     // 例如 available 有 3 个节点：
     // rand() % 3 的结果可能是 0、1、2。
-    return available[rand() % available.size()];
+    HttpEndpoint::ptr endpoint = available[rand() % available.size()];
+    endpoint->beginRequest();
+    return endpoint;
+}
+
+/**
+ * @brief 按权重轮询选择一个可用 Endpoint。
+ *
+ * 这里的实现方式是：
+ * - 每个 Endpoint 根据 weight 连续返回多次；
+ * - 例如权重分别为 3、1；
+ * - 那么选择顺序大致是：A、A、A、B、A、A、A、B...
+ *
+ * @return 选中的 Endpoint；如果没有可用 Endpoint，返回 nullptr
+ */
+HttpEndpoint::ptr HttpLoadBalanceClient::selectWeightedRoundRobin()
+{
+    MutexType::Lock lock(m_mutex);
+
+    // 没有任何 Endpoint，直接返回空
+    if (m_endpoints.empty())
+    {
+        return nullptr;
+    }
+
+    size_t size = m_endpoints.size();
+
+    // 最多扫描一圈，避免所有 Endpoint 都不可用时死循环
+    for (size_t i = 0; i < size; ++i)
+    {
+        // 如果当前加权轮询下标越界，重置到第一个 Endpoint
+        // m_weightedIndex是第几个Endpoint，m_weightedReturned是当前Endpoint被返回的次数，超过了数量m_weightedIndex就++
+        if (m_weightedIndex >= size)
+        {
+            m_weightedIndex = 0;
+            m_weightedReturned = 0;
+        }
+
+        HttpEndpoint::ptr endpoint = m_endpoints[m_weightedIndex];
+
+        // 只选择状态为 UP 的 Endpoint
+        if (endpoint && endpoint->getStatus() == HttpEndpointStatus::UP)
+        {
+            uint32_t weight = endpoint->getWeight();
+
+            // 当前 Endpoint 已经被返回一次
+            ++m_weightedReturned;
+
+            // 如果当前 Endpoint 已经按权重返回了足够多次，
+            // 下次选择时切换到下一个 Endpoint
+            if (m_weightedReturned >= weight)
+            {
+                m_weightedIndex = (m_weightedIndex + 1) % size;
+                m_weightedReturned = 0;
+            }
+
+            // 记录该 Endpoint 开始处理一个请求
+            //
+            // 注意：调用方完成请求后，需要对应调用 endRequest()
+            // 否则 LeastConnection 策略里的活跃请求数会不准确
+            endpoint->beginRequest();
+
+            return endpoint;
+        }
+
+        // 当前 Endpoint 不存在或不可用，跳过它，继续检查下一个
+        m_weightedIndex = (m_weightedIndex + 1) % size;
+        m_weightedReturned = 0;
+    }
+
+    // 扫描一圈后仍没有可用 Endpoint
+    return nullptr;
+}
+
+/**
+ * @brief 按最少活跃连接数选择一个可用 Endpoint。
+ *
+ * 选择规则：
+ * - 只考虑状态为 UP 的 Endpoint；
+ * - 比较每个 Endpoint 当前正在处理的请求数；
+ * - 选择 active request 数量最少的那个。
+ *
+ * @return 选中的 Endpoint；如果没有可用 Endpoint，返回 nullptr
+ */
+HttpEndpoint::ptr HttpLoadBalanceClient::selectLeastConnection()
+{
+    MutexType::Lock lock(m_mutex);
+
+    // 当前选中的 Endpoint
+    HttpEndpoint::ptr selected;
+
+    // 当前最小活跃请求数，初始化为 uint32_t 最大值
+    uint32_t selected_active = std::numeric_limits<uint32_t>::max();
+
+    //等遍历一遍之后真正拿到最小的才会开始请求。
+    for (auto &endpoint : m_endpoints)
+    {
+        // 跳过空 Endpoint 和非 UP 状态的 Endpoint
+        if (!endpoint || endpoint->getStatus() != HttpEndpointStatus::UP)
+        {
+            continue;
+        }
+
+        // 获取该 Endpoint 当前正在处理的请求数量
+        uint32_t active = endpoint->getActiveRequestCount();
+
+        // 如果还没选中 Endpoint，或者当前 Endpoint 的活跃请求数更少，
+        // 就更新选中对象
+        if (!selected || active < selected_active)
+        {
+            selected = endpoint;
+            selected_active = active;
+        }
+    }
+
+    // 选中后，记录该 Endpoint 开始处理一个请求
+    //
+    // 注意：调用方完成请求后，需要对应调用 endRequest()
+    // 否则活跃请求数会持续增加，导致 LeastConnection 选择结果失真
+    if (selected)
+    {
+        selected->beginRequest();
+    }
+
+    return selected;
 }
 
 } // namespace http
