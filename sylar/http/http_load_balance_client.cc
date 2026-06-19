@@ -2,6 +2,7 @@
 #include "sylar/log.h"
 #include <cstdlib>
 #include <limits>
+#include <sstream>
 #include <unistd.h>
 
 namespace sylar
@@ -61,6 +62,13 @@ uint32_t HttpEndpoint::getActiveRequestCount() const
     return m_activeRequests;
 }
 
+std::string HttpEndpoint::getLimitKey() const
+{
+    std::stringstream ss;
+    ss << m_host << ":" << m_port;
+    return ss.str();
+}
+
 void HttpEndpoint::beginRequest()
 {
     MutexType::Lock lock(m_mutex);
@@ -78,7 +86,8 @@ void HttpEndpoint::endRequest()
 
 HttpLoadBalanceClient::ptr
 HttpLoadBalanceClient::Create(const std::vector<HttpEndpoint::ptr> &endpoints,
-                              HttpLoadBalanceStrategy strategy)
+                              HttpLoadBalanceStrategy strategy,
+                              const HttpConcurrencyLimitOptions &limit_options)
 {
     std::vector<HttpEndpoint::ptr> valid;
     for (auto &endpoint : endpoints)
@@ -95,12 +104,14 @@ HttpLoadBalanceClient::Create(const std::vector<HttpEndpoint::ptr> &endpoints,
         return nullptr;
     }
 
-    return HttpLoadBalanceClient::ptr(new HttpLoadBalanceClient(valid, strategy));
+    return HttpLoadBalanceClient::ptr(new HttpLoadBalanceClient(valid, strategy, limit_options));
 }
 
 HttpLoadBalanceClient::HttpLoadBalanceClient(const std::vector<HttpEndpoint::ptr> &endpoints,
-                                             HttpLoadBalanceStrategy strategy)
-    : m_endpoints(endpoints), m_strategy(strategy)
+                                             HttpLoadBalanceStrategy strategy,
+                                             const HttpConcurrencyLimitOptions &limit_options)
+    : m_endpoints(endpoints), m_strategy(strategy),
+      m_limiter(HttpConcurrencyLimiter::Create(limit_options))
 {
 }
 
@@ -145,8 +156,18 @@ HttpResult::ptr HttpLoadBalanceClient::request(HttpMethod method,
                                   << HttpMethodToString(method)
                                   << " endpoint=" << endpoint->getHost() << ":"
                                   << endpoint->getPort() << " path=" << request_path;
+
         // 用选择出来的终端发请求；selectEndpoint() 已经占用活跃请求名额。
         {
+            HttpConcurrencyLimitGuard::ptr limit_guard =
+                m_limiter ? m_limiter->tryAcquire(endpoint->getLimitKey()) : nullptr;
+            if (!limit_guard)
+            {
+                endpoint->endRequest();
+                return std::make_shared<HttpResult>((int)HttpResult::Error::RATE_LIMITED, nullptr,
+                                                    "http client concurrency limited");
+            }
+
             struct RequestGuard
             {
                 explicit RequestGuard(HttpEndpoint::ptr ep) : endpoint(ep)

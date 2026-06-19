@@ -56,6 +56,8 @@ struct HttpResult
         RESPONSE_PARSE_FAIL = 14,
         /// HTTP响应状态码错误
         HTTP_STATUS_ERROR = 15,
+        /// 客户端并发限流
+        RATE_LIMITED = 16,
     };
 
     /**

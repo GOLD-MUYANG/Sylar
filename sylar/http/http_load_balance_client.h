@@ -2,6 +2,7 @@
 #define __SYLAR_HTTP_LOAD_BALANCE_CLIENT_H__
 
 #include "http_client.h"
+#include "http_concurrency_limiter.h"
 #include "sylar/mutex.h"
 #include <stdint.h>
 #include <vector>
@@ -77,6 +78,7 @@ public:
     HttpEndpointStatus getStatus() const;
     void setStatus(HttpEndpointStatus status);
     uint32_t getActiveRequestCount() const;
+    std::string getLimitKey() const;
 
 private:
     HttpEndpoint(const std::string &host,
@@ -119,7 +121,8 @@ public:
 
     static HttpLoadBalanceClient::ptr Create(
         const std::vector<HttpEndpoint::ptr> &endpoints,
-        HttpLoadBalanceStrategy strategy = HttpLoadBalanceStrategy::ROUND_ROBIN);
+        HttpLoadBalanceStrategy strategy = HttpLoadBalanceStrategy::ROUND_ROBIN,
+        const HttpConcurrencyLimitOptions &limit_options = HttpConcurrencyLimitOptions());
 
     HttpResult::ptr request(HttpMethod method,
                             const std::string &path,
@@ -171,7 +174,8 @@ public:
 
 private:
     HttpLoadBalanceClient(const std::vector<HttpEndpoint::ptr> &endpoints,
-                          HttpLoadBalanceStrategy strategy);
+                          HttpLoadBalanceStrategy strategy,
+                          const HttpConcurrencyLimitOptions &limit_options);
 
     HttpEndpoint::ptr selectEndpoint();
     HttpEndpoint::ptr selectRoundRobin();
@@ -185,6 +189,7 @@ private:
     size_t m_nextIndex = 0;
     size_t m_weightedIndex = 0;
     uint32_t m_weightedReturned = 0;
+    HttpConcurrencyLimiter::ptr m_limiter;
     MutexType m_mutex;
 };
 
