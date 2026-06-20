@@ -35,6 +35,7 @@ set(LIB_SRC
     sylar/http/http_server.cc
     sylar/http/servlet.cc
     sylar/http/http_client.cc
+    sylar/http/http_circuit_breaker.cc
     sylar/http/http_concurrency_limiter.cc
     sylar/http/http_load_balance_client.cc
     sylar/http/http_connection.cc
@@ -94,6 +95,7 @@ set(LIBS
 sylar_add_executable(test_http_connection "tests/test_http_connection.cc" sylar "${LIBS}")
 sylar_add_executable(test_http_request_options "tests/test_http_request_options.cc" sylar "${LIBS}")
 sylar_add_executable(test_http_client "tests/test_http_client.cc" sylar "${LIBS}")
+sylar_add_executable(test_http_circuit_breaker "tests/test_http_circuit_breaker.cc" sylar "${LIBS}")
 sylar_add_executable(test_http_concurrency_limiter "tests/test_http_concurrency_limiter.cc" sylar "${LIBS}")
 sylar_add_executable(test_http_load_balance_client "tests/test_http_load_balance_client.cc" sylar "${LIBS}")
 # sylar_add_executable(test_uri "tests/test_uri.cc" sylar "${LIBS}")

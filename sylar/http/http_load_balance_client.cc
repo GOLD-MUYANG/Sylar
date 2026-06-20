@@ -87,7 +87,8 @@ void HttpEndpoint::endRequest()
 HttpLoadBalanceClient::ptr
 HttpLoadBalanceClient::Create(const std::vector<HttpEndpoint::ptr> &endpoints,
                               HttpLoadBalanceStrategy strategy,
-                              const HttpConcurrencyLimitOptions &limit_options)
+                              const HttpConcurrencyLimitOptions &limit_options,
+                              const HttpCircuitBreakerOptions &circuit_options)
 {
     std::vector<HttpEndpoint::ptr> valid;
     for (auto &endpoint : endpoints)
@@ -104,14 +105,17 @@ HttpLoadBalanceClient::Create(const std::vector<HttpEndpoint::ptr> &endpoints,
         return nullptr;
     }
 
-    return HttpLoadBalanceClient::ptr(new HttpLoadBalanceClient(valid, strategy, limit_options));
+    return HttpLoadBalanceClient::ptr(
+        new HttpLoadBalanceClient(valid, strategy, limit_options, circuit_options));
 }
 
 HttpLoadBalanceClient::HttpLoadBalanceClient(const std::vector<HttpEndpoint::ptr> &endpoints,
                                              HttpLoadBalanceStrategy strategy,
-                                             const HttpConcurrencyLimitOptions &limit_options)
+                                             const HttpConcurrencyLimitOptions &limit_options,
+                                             const HttpCircuitBreakerOptions &circuit_options)
     : m_endpoints(endpoints), m_strategy(strategy),
-      m_limiter(HttpConcurrencyLimiter::Create(limit_options))
+      m_limiter(HttpConcurrencyLimiter::Create(limit_options)),
+      m_circuitBreaker(HttpCircuitBreaker::Create(circuit_options))
 {
 }
 
@@ -159,13 +163,23 @@ HttpResult::ptr HttpLoadBalanceClient::request(HttpMethod method,
 
         // 用选择出来的终端发请求；selectEndpoint() 已经占用活跃请求名额。
         {
+            std::string endpoint_key = endpoint->getLimitKey();
             HttpConcurrencyLimitGuard::ptr limit_guard =
-                m_limiter ? m_limiter->tryAcquire(endpoint->getLimitKey()) : nullptr;
+                m_limiter ? m_limiter->tryAcquire(endpoint_key) : nullptr;
             if (!limit_guard)
             {
                 endpoint->endRequest();
                 return std::make_shared<HttpResult>((int)HttpResult::Error::RATE_LIMITED, nullptr,
                                                     "http client concurrency limited");
+            }
+
+            HttpCircuitBreakerGuard::ptr circuit_guard =
+                m_circuitBreaker ? m_circuitBreaker->tryAcquire(endpoint_key) : nullptr;
+            if (!circuit_guard)
+            {
+                endpoint->endRequest();
+                return std::make_shared<HttpResult>((int)HttpResult::Error::CIRCUIT_OPEN, nullptr,
+                                                    "http client circuit open");
             }
 
             struct RequestGuard
@@ -181,6 +195,10 @@ HttpResult::ptr HttpLoadBalanceClient::request(HttpMethod method,
             } guard(endpoint);
             result = HttpClient::NormalizeResult(
                 endpoint->m_pool->doRequest(method, request_path, options, headers, body));
+            if (m_circuitBreaker)
+            {
+                m_circuitBreaker->onRequestComplete(endpoint_key, result);
+            }
         }
         if (retry_index >= retry_options.max_retry ||
             !HttpClient::ShouldRetry(method, result, retry_options))

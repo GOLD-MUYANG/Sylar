@@ -58,6 +58,8 @@ struct HttpResult
         HTTP_STATUS_ERROR = 15,
         /// 客户端并发限流
         RATE_LIMITED = 16,
+        /// 客户端熔断打开
+        CIRCUIT_OPEN = 17,
     };
 
     /**

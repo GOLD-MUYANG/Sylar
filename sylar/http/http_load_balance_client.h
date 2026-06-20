@@ -3,6 +3,7 @@
 
 #include "http_client.h"
 #include "http_concurrency_limiter.h"
+#include "http_circuit_breaker.h"
 #include "sylar/mutex.h"
 #include <stdint.h>
 #include <vector>
@@ -122,7 +123,8 @@ public:
     static HttpLoadBalanceClient::ptr Create(
         const std::vector<HttpEndpoint::ptr> &endpoints,
         HttpLoadBalanceStrategy strategy = HttpLoadBalanceStrategy::ROUND_ROBIN,
-        const HttpConcurrencyLimitOptions &limit_options = HttpConcurrencyLimitOptions());
+        const HttpConcurrencyLimitOptions &limit_options = HttpConcurrencyLimitOptions(),
+        const HttpCircuitBreakerOptions &circuit_options = HttpCircuitBreakerOptions());
 
     HttpResult::ptr request(HttpMethod method,
                             const std::string &path,
@@ -175,7 +177,8 @@ public:
 private:
     HttpLoadBalanceClient(const std::vector<HttpEndpoint::ptr> &endpoints,
                           HttpLoadBalanceStrategy strategy,
-                          const HttpConcurrencyLimitOptions &limit_options);
+                          const HttpConcurrencyLimitOptions &limit_options,
+                          const HttpCircuitBreakerOptions &circuit_options);
 
     HttpEndpoint::ptr selectEndpoint();
     HttpEndpoint::ptr selectRoundRobin();
@@ -190,6 +193,7 @@ private:
     size_t m_weightedIndex = 0;
     uint32_t m_weightedReturned = 0;
     HttpConcurrencyLimiter::ptr m_limiter;
+    HttpCircuitBreaker::ptr m_circuitBreaker;
     MutexType m_mutex;
 };
 

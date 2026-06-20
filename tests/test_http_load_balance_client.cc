@@ -1,4 +1,5 @@
 #include "sylar/hook.h"
+#include "sylar/http/http_circuit_breaker.h"
 #include "sylar/http/http_load_balance_client.h"
 #include "sylar/iomanager.h"
 #include "sylar/log.h"
@@ -662,6 +663,59 @@ void test_endpoint_qps_limit_rejects_fast_second_request()
 }
 
 /**
+ * @brief 测试负载均衡客户端接入 endpoint 熔断。
+ *
+ * 测试目标：
+ * - 第一次请求打到不可用 endpoint，触发连接失败；
+ * - 熔断阈值设置为 1，所以该 endpoint 进入 OPEN；
+ * - 第二次请求应该被熔断器快速拒绝，返回 CIRCUIT_OPEN。
+ */
+void test_circuit_breaker_rejects_open_endpoint()
+{
+    uint16_t unavailable_port = 0;
+    {
+        NamedHttpServer unavailable("unavailable");
+        unavailable_port = unavailable.getPort();
+    }
+
+    std::vector<sylar::http::HttpEndpoint::ptr> endpoints;
+    endpoints.push_back(create_endpoint(unavailable_port));
+
+    sylar::http::HttpConcurrencyLimitOptions limits;
+
+    sylar::http::HttpCircuitBreakerOptions circuit_options;
+    circuit_options.enabled = true;
+    circuit_options.consecutive_failure_threshold = 1;
+    circuit_options.open_timeout_ms = 1000;
+
+    auto client = sylar::http::HttpLoadBalanceClient::Create(
+        endpoints,
+        sylar::http::HttpLoadBalanceStrategy::ROUND_ROBIN,
+        limits,
+        circuit_options);
+
+    EXPECT_TRUE(client != nullptr);
+    if (!client)
+    {
+        return;
+    }
+
+    auto first_result = client->get("/ok", sylar::http::HttpRequestOptions::FromTimeout(100));
+    EXPECT_TRUE(first_result != nullptr);
+    if (first_result)
+    {
+        EXPECT_TRUE(first_result->result != (int)sylar::http::HttpResult::Error::CIRCUIT_OPEN);
+    }
+
+    auto second_result = client->get("/ok", sylar::http::HttpRequestOptions::FromTimeout(100));
+    EXPECT_TRUE(second_result != nullptr);
+    if (second_result)
+    {
+        EXPECT_EQ(second_result->result, (int)sylar::http::HttpResult::Error::CIRCUIT_OPEN);
+    }
+}
+
+/**
  * @brief 依次运行所有测试用例。
  */
 void run_tests()
@@ -674,6 +728,7 @@ void run_tests()
     test_health_check_marks_failed_endpoint_down();
     test_endpoint_concurrency_limit_rejects_busy_endpoint();
     test_endpoint_qps_limit_rejects_fast_second_request();
+    test_circuit_breaker_rejects_open_endpoint();
 
     SYLAR_LOG_INFO(g_logger) << "run_tests over";
 }
