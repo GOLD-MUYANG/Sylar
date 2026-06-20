@@ -12,6 +12,25 @@ namespace http
 
 static sylar::Logger::ptr g_logger = SYLAR_LOG_NAME("system");
 
+static bool HasEndpointBeenTried(const HttpEndpoint::ptr &endpoint,
+                                 const std::vector<std::string> &tried_endpoint_keys)
+{
+    if (!endpoint)
+    {
+        return false;
+    }
+
+    std::string endpoint_key = endpoint->getLimitKey();
+    for (auto &tried_endpoint_key : tried_endpoint_keys)
+    {
+        if (endpoint_key == tried_endpoint_key)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
 HttpEndpoint::ptr HttpEndpoint::Create(const std::string &host,
                                        uint32_t port,
                                        bool ssl,
@@ -146,31 +165,43 @@ HttpResult::ptr HttpLoadBalanceClient::request(HttpMethod method,
 {
     std::string request_path = path.empty() ? "/" : path;
     HttpResult::ptr result;
+    size_t endpoint_count = 0;
+    {
+        MutexType::Lock lock(m_mutex);
+        endpoint_count = m_endpoints.size();
+    }
 
     for (uint32_t retry_index = 0; retry_index <= retry_options.max_retry; ++retry_index)
     {
-        //选择一个终端
-        HttpEndpoint::ptr endpoint = selectEndpoint();
-        if (!endpoint)
+        // 记录当前这一轮请求已经尝试过的 endpoint。
+        // 如果某个 endpoint 被限流、熔断或请求失败，本轮会排除它，再选其他 endpoint。
+        std::vector<std::string> tried_endpoint_keys;
+        for (size_t endpoint_try = 0; endpoint_try < endpoint_count; ++endpoint_try)
         {
-            return std::make_shared<HttpResult>((int)HttpResult::Error::CONNECT_FAIL, nullptr,
-                                                "no available endpoint");
-        }
-        SYLAR_LOG_DEBUG(g_logger) << "HttpLoadBalanceClient request method="
-                                  << HttpMethodToString(method)
-                                  << " endpoint=" << endpoint->getHost() << ":"
-                                  << endpoint->getPort() << " path=" << request_path;
-
-        // 用选择出来的终端发请求；selectEndpoint() 已经占用活跃请求名额。
-        {
+            //选择一个终端
+            HttpEndpoint::ptr endpoint = selectEndpoint(tried_endpoint_keys);
+            if (!endpoint)
+            {
+                break;
+            }
             std::string endpoint_key = endpoint->getLimitKey();
+            tried_endpoint_keys.push_back(endpoint_key);
+
+            SYLAR_LOG_DEBUG(g_logger) << "HttpLoadBalanceClient request method="
+                                      << HttpMethodToString(method)
+                                      << " endpoint=" << endpoint->getHost() << ":"
+                                      << endpoint->getPort() << " path=" << request_path;
+
+            // 用选择出来的终端发请求；selectEndpoint() 已经占用活跃请求名额。
             HttpConcurrencyLimitGuard::ptr limit_guard =
                 m_limiter ? m_limiter->tryAcquire(endpoint_key) : nullptr;
             if (!limit_guard)
             {
                 endpoint->endRequest();
-                return std::make_shared<HttpResult>((int)HttpResult::Error::RATE_LIMITED, nullptr,
-                                                    "http client concurrency limited");
+                result = std::make_shared<HttpResult>((int)HttpResult::Error::RATE_LIMITED,
+                                                      nullptr,
+                                                      "http client concurrency limited");
+                continue;
             }
 
             HttpCircuitBreakerGuard::ptr circuit_guard =
@@ -178,8 +209,9 @@ HttpResult::ptr HttpLoadBalanceClient::request(HttpMethod method,
             if (!circuit_guard)
             {
                 endpoint->endRequest();
-                return std::make_shared<HttpResult>((int)HttpResult::Error::CIRCUIT_OPEN, nullptr,
-                                                    "http client circuit open");
+                result = std::make_shared<HttpResult>((int)HttpResult::Error::CIRCUIT_OPEN,
+                                                      nullptr, "http client circuit open");
+                continue;
             }
 
             struct RequestGuard
@@ -199,11 +231,21 @@ HttpResult::ptr HttpLoadBalanceClient::request(HttpMethod method,
             {
                 m_circuitBreaker->onRequestComplete(endpoint_key, result);
             }
+
+            if (!HttpClient::ShouldRetry(method, result, retry_options))
+            {
+                return result;
+            }
         }
-        if (retry_index >= retry_options.max_retry ||
-            !HttpClient::ShouldRetry(method, result, retry_options))
+
+        if (retry_index >= retry_options.max_retry)
         {
-            return result;
+            if (result)
+            {
+                return result;
+            }
+            return std::make_shared<HttpResult>((int)HttpResult::Error::CONNECT_FAIL, nullptr,
+                                                "no available endpoint");
         }
 
         uint64_t interval_ms = HttpClient::GetRetryInterval(retry_options, retry_index + 1);
@@ -310,23 +352,25 @@ size_t HttpLoadBalanceClient::checkHealth(const std::string &path,
     return available;
 }
 
-HttpEndpoint::ptr HttpLoadBalanceClient::selectEndpoint()
+HttpEndpoint::ptr
+HttpLoadBalanceClient::selectEndpoint(const std::vector<std::string> &tried_endpoint_keys)
 {
     switch (m_strategy)
     {
     case HttpLoadBalanceStrategy::RANDOM:
-        return selectRandom();
+        return selectRandom(tried_endpoint_keys);
     case HttpLoadBalanceStrategy::WEIGHTED_ROUND_ROBIN:
-        return selectWeightedRoundRobin();
+        return selectWeightedRoundRobin(tried_endpoint_keys);
     case HttpLoadBalanceStrategy::LEAST_CONNECTION:
-        return selectLeastConnection();
+        return selectLeastConnection(tried_endpoint_keys);
     case HttpLoadBalanceStrategy::ROUND_ROBIN:
     default:
-        return selectRoundRobin();
+        return selectRoundRobin(tried_endpoint_keys);
     }
 }
 
-HttpEndpoint::ptr HttpLoadBalanceClient::selectRoundRobin()
+HttpEndpoint::ptr
+HttpLoadBalanceClient::selectRoundRobin(const std::vector<std::string> &tried_endpoint_keys)
 {
     // 加锁，保护 m_endpoints 和 m_nextIndex。
     // 因为多个线程可能同时调用 selectRoundRobin，
@@ -360,7 +404,8 @@ HttpEndpoint::ptr HttpLoadBalanceClient::selectRoundRobin()
 
         // 如果 endpoint 不为空，并且状态是 UP，
         // 说明这个节点当前可以被使用。
-        if (endpoint && endpoint->getStatus() == HttpEndpointStatus::UP)
+        if (endpoint && endpoint->getStatus() == HttpEndpointStatus::UP &&
+            !HasEndpointBeenTried(endpoint, tried_endpoint_keys))
         {
             // 更新下一次轮询的起点。
             //
@@ -380,7 +425,8 @@ HttpEndpoint::ptr HttpLoadBalanceClient::selectRoundRobin()
     return nullptr;
 }
 
-HttpEndpoint::ptr HttpLoadBalanceClient::selectRandom()
+HttpEndpoint::ptr
+HttpLoadBalanceClient::selectRandom(const std::vector<std::string> &tried_endpoint_keys)
 {
     // 加锁，保护 m_endpoints。
     // 因为其他线程可能正在增删 Endpoint 或修改 Endpoint 状态。
@@ -393,7 +439,8 @@ HttpEndpoint::ptr HttpLoadBalanceClient::selectRandom()
     for (auto &endpoint : m_endpoints)
     {
         // 只把非空并且状态为 UP 的 Endpoint 放入 available。
-        if (endpoint && endpoint->getStatus() == HttpEndpointStatus::UP)
+        if (endpoint && endpoint->getStatus() == HttpEndpointStatus::UP &&
+            !HasEndpointBeenTried(endpoint, tried_endpoint_keys))
         {
             available.push_back(endpoint);
         }
@@ -427,7 +474,8 @@ HttpEndpoint::ptr HttpLoadBalanceClient::selectRandom()
  *
  * @return 选中的 Endpoint；如果没有可用 Endpoint，返回 nullptr
  */
-HttpEndpoint::ptr HttpLoadBalanceClient::selectWeightedRoundRobin()
+HttpEndpoint::ptr HttpLoadBalanceClient::selectWeightedRoundRobin(
+    const std::vector<std::string> &tried_endpoint_keys)
 {
     MutexType::Lock lock(m_mutex);
 
@@ -453,7 +501,8 @@ HttpEndpoint::ptr HttpLoadBalanceClient::selectWeightedRoundRobin()
         HttpEndpoint::ptr endpoint = m_endpoints[m_weightedIndex];
 
         // 只选择状态为 UP 的 Endpoint
-        if (endpoint && endpoint->getStatus() == HttpEndpointStatus::UP)
+        if (endpoint && endpoint->getStatus() == HttpEndpointStatus::UP &&
+            !HasEndpointBeenTried(endpoint, tried_endpoint_keys))
         {
             uint32_t weight = endpoint->getWeight();
 
@@ -496,7 +545,8 @@ HttpEndpoint::ptr HttpLoadBalanceClient::selectWeightedRoundRobin()
  *
  * @return 选中的 Endpoint；如果没有可用 Endpoint，返回 nullptr
  */
-HttpEndpoint::ptr HttpLoadBalanceClient::selectLeastConnection()
+HttpEndpoint::ptr HttpLoadBalanceClient::selectLeastConnection(
+    const std::vector<std::string> &tried_endpoint_keys)
 {
     MutexType::Lock lock(m_mutex);
 
@@ -510,7 +560,8 @@ HttpEndpoint::ptr HttpLoadBalanceClient::selectLeastConnection()
     for (auto &endpoint : m_endpoints)
     {
         // 跳过空 Endpoint 和非 UP 状态的 Endpoint
-        if (!endpoint || endpoint->getStatus() != HttpEndpointStatus::UP)
+        if (!endpoint || endpoint->getStatus() != HttpEndpointStatus::UP ||
+            HasEndpointBeenTried(endpoint, tried_endpoint_keys))
         {
             continue;
         }

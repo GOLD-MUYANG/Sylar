@@ -627,6 +627,49 @@ void test_endpoint_concurrency_limit_rejects_busy_endpoint()
 }
 
 /**
+ * @brief 测试 endpoint 被限流时，同一次请求会自动切换到其他可用 endpoint。
+ *
+ * 测试流程：
+ * 1. 第一个请求打到 slow endpoint，并保持 busy；
+ * 2. 第二个请求打到 fast endpoint，让轮询位置回到 slow；
+ * 3. 第三个请求先选到 busy 的 slow，被 endpoint 并发限制拒绝；
+ * 4. 客户端应该继续尝试 fast，并返回 fast 的响应。
+ */
+void test_endpoint_concurrency_limit_failover_to_next_endpoint()
+{
+    NamedHttpServer slow("slow", 500);
+    NamedHttpServer fast("fast");
+    usleep(50 * 1000);
+
+    std::vector<sylar::http::HttpEndpoint::ptr> endpoints;
+    endpoints.push_back(create_endpoint(slow.getPort()));
+    endpoints.push_back(create_endpoint(fast.getPort()));
+
+    sylar::http::HttpConcurrencyLimitOptions limits;
+    limits.max_endpoint_concurrency = 1;
+
+    auto client = sylar::http::HttpLoadBalanceClient::Create(
+        endpoints, sylar::http::HttpLoadBalanceStrategy::ROUND_ROBIN, limits);
+
+    EXPECT_TRUE(client != nullptr);
+    if (!client)
+    {
+        return;
+    }
+
+    sylar::http::HttpResult::ptr slow_result;
+    sylar::IOManager *iom = sylar::IOManager::GetThis();
+    iom->schedule([&]() { slow_result = client->get("/ok", 1000); });
+    usleep(50 * 1000);
+
+    expect_ok_body(client->get("/ok", 1000), "fast");
+    expect_ok_body(client->get("/ok", 1000), "fast");
+
+    usleep(550 * 1000);
+    expect_ok_body(slow_result, "slow");
+}
+
+/**
  * @brief 测试 endpoint 级别的 QPS 限制。
  *
  * 测试目标：
@@ -716,6 +759,53 @@ void test_circuit_breaker_rejects_open_endpoint()
 }
 
 /**
+ * @brief 测试 endpoint 熔断后，同一次请求会自动切换到其他可用 endpoint。
+ *
+ * 测试流程：
+ * 1. 第一次请求先打到 unavailable，触发连接失败并打开熔断；
+ * 2. 同一次请求应该继续请求 available，并最终成功；
+ * 3. 第二次请求按轮询会先选回 unavailable，此时它处于 OPEN；
+ * 4. 客户端应该跳过熔断节点，继续请求 available。
+ */
+void test_circuit_breaker_failover_to_next_endpoint()
+{
+    uint16_t unavailable_port = 0;
+    {
+        NamedHttpServer unavailable("unavailable");
+        unavailable_port = unavailable.getPort();
+    }
+
+    NamedHttpServer available("available");
+    usleep(50 * 1000);
+
+    std::vector<sylar::http::HttpEndpoint::ptr> endpoints;
+    endpoints.push_back(create_endpoint(unavailable_port));
+    endpoints.push_back(create_endpoint(available.getPort()));
+
+    sylar::http::HttpConcurrencyLimitOptions limits;
+
+    sylar::http::HttpCircuitBreakerOptions circuit_options;
+    circuit_options.enabled = true;
+    circuit_options.consecutive_failure_threshold = 1;
+    circuit_options.open_timeout_ms = 1000;
+
+    auto client = sylar::http::HttpLoadBalanceClient::Create(
+        endpoints,
+        sylar::http::HttpLoadBalanceStrategy::ROUND_ROBIN,
+        limits,
+        circuit_options);
+
+    EXPECT_TRUE(client != nullptr);
+    if (!client)
+    {
+        return;
+    }
+
+    expect_ok_body(client->get("/ok", 1000), "available");
+    expect_ok_body(client->get("/ok", 1000), "available");
+}
+
+/**
  * @brief 依次运行所有测试用例。
  */
 void run_tests()
@@ -727,8 +817,10 @@ void run_tests()
     test_least_connection_uses_less_busy_endpoint();
     test_health_check_marks_failed_endpoint_down();
     test_endpoint_concurrency_limit_rejects_busy_endpoint();
+    test_endpoint_concurrency_limit_failover_to_next_endpoint();
     test_endpoint_qps_limit_rejects_fast_second_request();
     test_circuit_breaker_rejects_open_endpoint();
+    test_circuit_breaker_failover_to_next_endpoint();
 
     SYLAR_LOG_INFO(g_logger) << "run_tests over";
 }

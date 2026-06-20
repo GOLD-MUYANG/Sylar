@@ -180,11 +180,12 @@ private:
                           const HttpConcurrencyLimitOptions &limit_options,
                           const HttpCircuitBreakerOptions &circuit_options);
 
-    HttpEndpoint::ptr selectEndpoint();
-    HttpEndpoint::ptr selectRoundRobin();
-    HttpEndpoint::ptr selectRandom();
-    HttpEndpoint::ptr selectWeightedRoundRobin();
-    HttpEndpoint::ptr selectLeastConnection();
+    HttpEndpoint::ptr selectEndpoint(const std::vector<std::string> &tried_endpoint_keys = {});
+    HttpEndpoint::ptr selectRoundRobin(const std::vector<std::string> &tried_endpoint_keys);
+    HttpEndpoint::ptr selectRandom(const std::vector<std::string> &tried_endpoint_keys);
+    HttpEndpoint::ptr
+    selectWeightedRoundRobin(const std::vector<std::string> &tried_endpoint_keys);
+    HttpEndpoint::ptr selectLeastConnection(const std::vector<std::string> &tried_endpoint_keys);
 
 private:
     std::vector<HttpEndpoint::ptr> m_endpoints;
