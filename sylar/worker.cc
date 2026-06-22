@@ -2,6 +2,8 @@
 #include "config.h"
 #include "util.h"
 
+#include <exception>
+
 namespace sylar
 {
 
@@ -9,8 +11,10 @@ static sylar::ConfigVar<std::map<std::string, std::map<std::string, std::string>
     g_worker_config = sylar::Config::Lookup(
         "workers", std::map<std::string, std::map<std::string, std::string>>(), "worker config");
 
+static sylar::Logger::ptr g_logger = SYLAR_LOG_NAME("system");
+
 WorkerGroup::WorkerGroup(uint32_t batch_size, sylar::Scheduler *s)
-    : m_batchSize(batch_size), m_finish(false), m_scheduler(s)
+    : m_batchSize(batch_size), m_finish(false), m_scheduler(s), m_sem(batch_size)
 {
 }
 
@@ -29,8 +33,20 @@ void WorkerGroup::schedule(std::function<void()> cb, int thread)
 
 void WorkerGroup::doWork(std::function<void()> cb)
 {
-    cb();
-    // 用户任务执行完成，释放并发名额，唤醒等待投递或等待完成的协程。
+    try
+    {
+        cb();
+    }
+    catch (const std::exception &e)
+    {
+        // Scheduler 的普通任务协程不会接住异常；这里隔离失败任务，避免终止整个进程。
+        SYLAR_LOG_ERROR(g_logger) << "WorkerGroup callback threw exception: " << e.what();
+    }
+    catch (...)
+    {
+        SYLAR_LOG_ERROR(g_logger) << "WorkerGroup callback threw an unknown exception";
+    }
+    // 无论正常完成还是异常退出，都释放名额，唤醒等待投递或等待完成的协程。
     m_sem.notify();
 }
 

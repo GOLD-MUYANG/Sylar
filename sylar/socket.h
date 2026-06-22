@@ -143,6 +143,14 @@ class SSLSocket : public Socket
 public:
     typedef std::shared_ptr<SSLSocket> ptr;
 
+    struct ClientOptions
+    {
+        std::string server_name;
+        std::string ca_file;
+        std::string ca_path;
+        bool verify_peer = true;
+    };
+
     static SSLSocket::ptr CreateTCP(sylar::Address::ptr address);
     static SSLSocket::ptr CreateTCPSocket();
     static SSLSocket::ptr CreateTCPSocket6();
@@ -165,6 +173,14 @@ public:
     virtual int recvFrom(iovec *buffers, size_t length, Address::ptr from, int flags = 0) override;
 
     bool loadCertificates(const std::string &cert_file, const std::string &key_file);
+    void setClientOptions(const ClientOptions &options)
+    {
+        m_clientOptions = options;
+    }
+    const ClientOptions &getClientOptions() const
+    {
+        return m_clientOptions;
+    }
     virtual std::ostream &dump(std::ostream &os) const override;
 
 protected:
@@ -173,6 +189,7 @@ protected:
 private:
     std::shared_ptr<SSL_CTX> m_ctx;
     std::shared_ptr<SSL> m_ssl;
+    ClientOptions m_clientOptions;
 };
 
 std::ostream &operator<<(std::ostream &os, const Socket &addr);

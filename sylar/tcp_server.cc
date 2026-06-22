@@ -1,6 +1,8 @@
 #include "tcp_server.h"
 #include "config.h"
 #include "log.h"
+#include "module.h"
+#include "socket_stream.h"
 
 namespace sylar
 {
@@ -81,8 +83,9 @@ void TcpServer::startAccept(Socket::ptr sock)
         if (client)
         {
             client->setRecvTimeOut(m_recvTimeout);
-            // bind,第一个参数回调，第二个参数是谁回调，第三个参数才是回调的参数
-            m_worker->schedule(std::bind(&TcpServer::handleClient, shared_from_this(), client));
+            // 统一经过模块回调包装，再分派到 HTTP 等子类的 handleClient 实现。
+            m_worker->schedule(
+                std::bind(&TcpServer::handleClientWithModule, shared_from_this(), client));
         }
         else
         {
@@ -124,6 +127,28 @@ void TcpServer::stop()
 void TcpServer::handleClient(Socket::ptr client)
 {
     SYLAR_LOG_INFO(g_logger) << "handleClient: " << *client;
+}
+
+void TcpServer::handleClientWithModule(Socket::ptr client)
+{
+    // Module 只观察连接，不拥有 socket；协议层仍负责连接关闭语义。
+    SocketStream::ptr stream(new SocketStream(client, false));
+    ModuleMgr::GetInstance()->onConnect(stream);
+
+    try
+    {
+        handleClient(client);
+    }
+    catch (const std::exception &e)
+    {
+        SYLAR_LOG_ERROR(g_logger) << "handleClient threw exception: " << e.what();
+    }
+    catch (...)
+    {
+        SYLAR_LOG_ERROR(g_logger) << "handleClient threw an unknown exception";
+    }
+
+    ModuleMgr::GetInstance()->onDisconnect(stream);
 }
 
 bool TcpServer::loadCertificates(const std::string &cert_file, const std::string &key_file)

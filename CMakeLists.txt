@@ -1,5 +1,6 @@
 cmake_minimum_required(VERSION 3.5)
 project(sylar)
+enable_testing()
 
 include (cmake/utils.cmake)
 
@@ -98,6 +99,26 @@ sylar_add_executable(test_http_client "tests/test_http_client.cc" sylar "${LIBS}
 sylar_add_executable(test_http_circuit_breaker "tests/test_http_circuit_breaker.cc" sylar "${LIBS}")
 sylar_add_executable(test_http_concurrency_limiter "tests/test_http_concurrency_limiter.cc" sylar "${LIBS}")
 sylar_add_executable(test_http_load_balance_client "tests/test_http_load_balance_client.cc" sylar "${LIBS}")
+sylar_add_executable(test_worker_group "tests/test_worker_group.cc" sylar "${LIBS}")
+sylar_add_executable(test_env_config "tests/test_env_config.cc" sylar "${LIBS}")
+sylar_add_executable(test_http_connection_pool "tests/test_http_connection_pool.cc" sylar "${LIBS}")
+add_library(test_module_lifecycle_plugin SHARED "tests/test_module_lifecycle_plugin.cc")
+target_link_libraries(test_module_lifecycle_plugin PRIVATE sylar)
+set_target_properties(test_module_lifecycle_plugin PROPERTIES
+    LIBRARY_OUTPUT_DIRECTORY ${PROJECT_SOURCE_DIR}/bin/test_module_lifecycle_plugins
+)
+sylar_add_executable(test_module_lifecycle "tests/test_module_lifecycle.cc" test_module_lifecycle_plugin "${LIBS}")
+sylar_add_executable(test_tls_client_options "tests/test_tls_client_options.cc" sylar "${LIBS}")
+
+add_test(NAME worker_group COMMAND $<TARGET_FILE:test_worker_group>)
+add_test(NAME env_config COMMAND $<TARGET_FILE:test_env_config>)
+add_test(NAME http_connection_pool COMMAND $<TARGET_FILE:test_http_connection_pool>)
+add_test(NAME module_lifecycle COMMAND $<TARGET_FILE:test_module_lifecycle>)
+add_test(NAME tls_client_options COMMAND $<TARGET_FILE:test_tls_client_options>)
+add_test(NAME startup_missing_config COMMAND $<TARGET_FILE:bin_sylar> -s -c /tmp/sylar-missing-config)
+set_tests_properties(startup_missing_config PROPERTIES WILL_FAIL TRUE)
+set_tests_properties(worker_group env_config http_connection_pool module_lifecycle tls_client_options
+                     startup_missing_config PROPERTIES LABELS "unit")
 # sylar_add_executable(test_uri "tests/test_uri.cc" sylar "${LIBS}")
 # sylar_add_executable(test_daemon "tests/test_daemon.cc" sylar "${LIBS}")
 # sylar_add_executable(test_application "tests/test_application.cc" sylar "${LIBS}")

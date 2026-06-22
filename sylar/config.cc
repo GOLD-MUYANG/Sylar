@@ -74,17 +74,46 @@ void Config::LoadFromYaml(const YAML::Node &root)
 static std::map<std::string, uint64_t> s_file2modifytime;
 static sylar::Mutex s_mutex;
 
-void Config::LoadFromConfDir(const std::string &path, bool force)
+bool Config::LoadFromConfDir(const std::string &path, bool force)
 {
     std::string absoulte_path = sylar::EnvMgr::GetInstance()->getAbsolutePath(path);
+    struct stat path_stat;
+    if (stat(absoulte_path.c_str(), &path_stat) != 0)
+    {
+        SYLAR_LOG_ERROR(g_logger) << "LoadConfDir path=" << absoulte_path
+                                  << " does not exist or is inaccessible errno=" << errno
+                                  << " errstr=" << strerror(errno);
+        return false;
+    }
+    if (!S_ISDIR(path_stat.st_mode) || access(absoulte_path.c_str(), R_OK | X_OK) != 0)
+    {
+        SYLAR_LOG_ERROR(g_logger) << "LoadConfDir path=" << absoulte_path
+                                  << " is not a readable directory";
+        return false;
+    }
+
     std::vector<std::string> files;
     FSUtil::ListAllFile(files, absoulte_path, ".yml");
+    if (files.empty())
+    {
+        SYLAR_LOG_ERROR(g_logger) << "LoadConfDir path=" << absoulte_path
+                                  << " contains no YAML configuration files";
+        return false;
+    }
 
+    bool success = true;
     for (auto &i : files)
     {
         {
             struct stat st;
-            lstat(i.c_str(), &st);
+            if (lstat(i.c_str(), &st) != 0)
+            {
+                SYLAR_LOG_ERROR(g_logger) << "LoadConfFile file=" << i
+                                          << " stat failed errno=" << errno
+                                          << " errstr=" << strerror(errno);
+                success = false;
+                continue;
+            }
             sylar::Mutex::Lock lock(s_mutex);
             if (!force && s_file2modifytime[i] == (uint64_t)st.st_mtime)
             {
@@ -98,11 +127,18 @@ void Config::LoadFromConfDir(const std::string &path, bool force)
             LoadFromYaml(root);
             SYLAR_LOG_INFO(g_logger) << "LoadConfFile file=" << i << " ok";
         }
+        catch (const std::exception &e)
+        {
+            SYLAR_LOG_ERROR(g_logger) << "LoadConfFile file=" << i << " failed: " << e.what();
+            success = false;
+        }
         catch (...)
         {
             SYLAR_LOG_ERROR(g_logger) << "LoadConfFile file=" << i << " failed";
+            success = false;
         }
     }
+    return success;
 }
 
 void Config::Visit(std::function<void(ConfigVarBase::ptr)> cb)

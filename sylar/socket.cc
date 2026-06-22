@@ -571,15 +571,123 @@ bool SSLSocket::bind(const Address::ptr addr)
 
 bool SSLSocket::connect(const Address::ptr addr, uint64_t timeout_ms)
 {
+    // 1. 先建立普通 TCP 连接
+    // 这里调用父类 Socket::connect，负责 connect(fd, addr) 以及超时控制。
     bool v = Socket::connect(addr, timeout_ms);
-    if (v)
+    if (!v)
     {
-        m_ctx.reset(SSL_CTX_new(SSLv23_client_method()), SSL_CTX_free);
-        m_ssl.reset(SSL_new(m_ctx.get()), SSL_free);
-        SSL_set_fd(m_ssl.get(), m_sock);
-        v = (SSL_connect(m_ssl.get()) == 1);
+        // TCP 都没连上，后面的 TLS 握手没有意义
+        return false;
     }
-    return v;
+
+    // 2. 创建 SSL_CTX
+    // SSL_CTX 是 SSL/TLS 的上下文对象，可以理解为 TLS 配置环境。
+    // TLS_client_method() 表示创建一个客户端 TLS 方法，支持根据环境协商 TLS 版本。
+    //
+    // m_ctx 是智能指针包装，第二个参数 SSL_CTX_free 是释放函数。
+    m_ctx.reset(SSL_CTX_new(TLS_client_method()), SSL_CTX_free);
+    if (!m_ctx)
+    {
+        SYLAR_LOG_ERROR(g_logger) << "SSL_CTX_new client context failed";
+        return false;
+    }
+
+    // 3. 根据客户端配置决定是否验证服务端证书
+    if (m_clientOptions.verify_peer)
+    {
+        // 开启服务端证书验证
+        // SSL_VERIFY_PEER 表示握手过程中要验证对端证书链。
+        SSL_CTX_set_verify(m_ctx.get(), SSL_VERIFY_PEER, nullptr);
+
+        int loaded = 0;
+
+        // 4. 加载 CA 信任库
+        // 如果用户配置了 ca_file 或 ca_path，则使用用户指定的 CA 文件/目录。
+        if (!m_clientOptions.ca_file.empty() || !m_clientOptions.ca_path.empty())
+        {
+            loaded = SSL_CTX_load_verify_locations(
+                m_ctx.get(),
+                m_clientOptions.ca_file.empty() ? nullptr : m_clientOptions.ca_file.c_str(),
+                m_clientOptions.ca_path.empty() ? nullptr : m_clientOptions.ca_path.c_str());
+        }
+        else
+        {
+            // 如果用户没有指定 CA，就加载系统默认 CA 路径
+            loaded = SSL_CTX_set_default_verify_paths(m_ctx.get());
+        }
+
+        // 加载 CA 失败，说明后续无法验证服务端证书链
+        if (loaded != 1)
+        {
+            SYLAR_LOG_ERROR(g_logger) << "load TLS trust store failed";
+            return false;
+        }
+    }
+    else
+    {
+        // 不验证服务端证书
+        // 这适合本地测试、自签证书调试，但不适合生产环境访问公网 HTTPS。
+        SSL_CTX_set_verify(m_ctx.get(), SSL_VERIFY_NONE, nullptr);
+    }
+
+    // 5. 创建 SSL 会话对象
+    // SSL_CTX 是配置环境，SSL 是一次具体连接上的 TLS 会话。
+    m_ssl.reset(SSL_new(m_ctx.get()), SSL_free);
+
+    // 6. 把 SSL 对象绑定到当前 socket fd
+    // 之后 SSL_read / SSL_write / SSL_connect 都会通过 m_sock 这个 fd 通信。
+    if (!m_ssl || SSL_set_fd(m_ssl.get(), m_sock) != 1)
+    {
+        SYLAR_LOG_ERROR(g_logger) << "initialize TLS session failed";
+        return false;
+    }
+
+    // 7. 如果配置了 server_name，则设置 SNI 和主机名校验
+    if (!m_clientOptions.server_name.empty())
+    {
+        // 7.1 设置 SNI
+        // SNI 的作用是告诉服务端：我要访问哪个域名。
+        // 同一个 IP 上可能部署多个 HTTPS 站点，服务端需要根据 SNI 返回正确证书。
+        if (SSL_set_tlsext_host_name(m_ssl.get(), m_clientOptions.server_name.c_str()) != 1)
+        {
+            SYLAR_LOG_ERROR(g_logger) << "set TLS SNI failed host=" << m_clientOptions.server_name;
+            return false;
+        }
+
+        // 7.2 设置主机名校验
+        // verify_peer 只验证证书链是否可信；
+        // X509_VERIFY_PARAM_set1_host 用来验证证书里的域名是否匹配 server_name。
+        if (m_clientOptions.verify_peer &&
+            X509_VERIFY_PARAM_set1_host(SSL_get0_param(m_ssl.get()),
+                                        m_clientOptions.server_name.c_str(), 0) != 1)
+        {
+            SYLAR_LOG_ERROR(g_logger)
+                << "set TLS hostname verification failed host=" << m_clientOptions.server_name;
+            return false;
+        }
+    }
+
+    // 8. 发起 TLS 握手
+    // 这一步会进行 ClientHello、ServerHello、证书交换、密钥协商等流程。
+    // 成功返回 1，失败返回 <= 0。
+    if (SSL_connect(m_ssl.get()) != 1)
+    {
+        SYLAR_LOG_ERROR(g_logger) << "TLS handshake failed error="
+                                  << ERR_error_string(ERR_get_error(), nullptr);
+        return false;
+    }
+
+    // 9. 如果开启了证书验证，检查最终验证结果
+    // X509_V_OK 表示证书链验证通过。
+    if (m_clientOptions.verify_peer && SSL_get_verify_result(m_ssl.get()) != X509_V_OK)
+    {
+        SYLAR_LOG_ERROR(g_logger) << "TLS certificate verification failed result="
+                                  << SSL_get_verify_result(m_ssl.get());
+        return false;
+    }
+
+    // 10. TCP 连接成功 + TLS 握手成功 + 证书验证通过
+    return true;
 }
 
 bool SSLSocket::listen(int backlog)

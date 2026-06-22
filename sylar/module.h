@@ -86,6 +86,8 @@ public:
 
     void onConnect(Stream::ptr stream);
     void onDisconnect(Stream::ptr stream);
+    void onServerReady();
+    void onServerUp();
 
     void listAll(std::vector<Module::ptr> &ms);
 

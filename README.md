@@ -209,7 +209,7 @@
 >   - [`sylar/tcp_server.h`](sylar/tcp_server.h)、[`sylar/tcp_server.cc`](sylar/tcp_server.cc)：以 SSL Socket 绑定监听地址并加载证书。
 >   - [`sylar/application.h`](sylar/application.h)、[`sylar/application.cc`](sylar/application.cc)：读取服务 SSL 配置并初始化证书。
 >
-> - 基于 OpenSSL 提供 HTTPS/TLS 连接能力；客户端按 URI 的 `https` 协议创建 SSL Socket，服务端可在配置中启用 SSL 并指定证书和私钥。
+> - 基于 OpenSSL 提供 HTTPS/TLS 连接能力；连接池访问 `https` 时默认加载系统可信 CA、校验证书和目标主机名，并将目标主机写入 SNI。私有 CA 或关闭校验必须显式设置 `SSLSocket::ClientOptions`；服务端可在配置中启用 SSL 并指定证书和私钥。
 
 ## worker模块
 
@@ -217,7 +217,7 @@
 > - **对应文件**
 >   - [`sylar/worker.h`](sylar/worker.h)、[`sylar/worker.cc`](sylar/worker.cc)：命名工作组、调度器创建和任务投递。
 >
-> - 通过 `WorkerGroup` 管理一组调度线程，通过 `WorkerManager` 按名称注册、查询和停止工作组。
+> - `WorkerGroup` 是依附既有 `Scheduler` 的并发受限任务组：最多同时运行 `batch_size` 个任务；任务异常会记录错误并归还名额。`WorkerManager` 则按名称创建、查询和停止 `IOManager`，两者不是同一层能力。
 
 ## 插件模块
 
@@ -226,15 +226,7 @@
 >   - [`sylar/module.h`](sylar/module.h)、[`sylar/module.cc`](sylar/module.cc)：模块接口、模块扫描和模块生命周期管理。
 >   - [`sylar/library.h`](sylar/library.h)、[`sylar/library.cc`](sylar/library.cc)：动态库加载、符号查找和模块实例创建。
 >
-> - 扫描配置目录中的动态库，通过 `CreateModule` 和 `DestoryModule` 完成插件模块的加载与销毁。
-
-## 线程池
-
-> [!NOTE]
-> - **对应文件**
->   - [`sylar/worker.h`](sylar/worker.h)、[`sylar/worker.cc`](sylar/worker.cc)：线程池能力由 WorkerGroup 提供，并复用调度器执行任务。
->
-> - 线程池按名称管理，每个工作组可配置线程数和调度器属性；任务提交后由组内线程协程执行。
+> - 扫描配置目录中的动态库，通过 `CreateModule` 和 `DestoryModule` 完成插件模块的加载与销毁。加载后依次支持 `onLoad`、所有服务 bind 完成后的 `onServerReady`、服务启动后的 `onServerUp`，以及每条 TCP 连接前后的 `onConnect` / `onDisconnect`；退出清理时调用 `onUnload`。回调失败或抛异常只记录错误，不接管服务的连接资源。
 
 
 # 系统篇
@@ -254,14 +246,6 @@
 # 至此，Sylar的基础部分就实现了
 
 # 基于Sylar的扩展
-## 封装线程池
-
-> [!NOTE]
-> - **对应文件**
->   - [`sylar/worker.h`](sylar/worker.h)、[`sylar/worker.cc`](sylar/worker.cc)：工作组与命名线程池实现。
->
-> - 基于调度器封装 WorkerGroup，用于创建多线程工作组、投递任务和统一停止。
-
 ## 失败重试
 
 > [!NOTE]

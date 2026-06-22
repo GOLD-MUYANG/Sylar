@@ -49,6 +49,8 @@ public:
     }
 
 protected:
+    // 统一包装模块连接回调，随后再进入子类的具体协议处理。
+    void handleClientWithModule(Socket::ptr client);
     //子类进行重写，当连接上一个客户端时做一些动作
     virtual void handleClient(Socket::ptr client);
     virtual void startAccept(Socket::ptr sock);

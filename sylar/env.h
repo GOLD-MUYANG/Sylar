@@ -45,6 +45,7 @@ private:
     std::string m_program;                                    // 程序名 argv[0]
     std::string m_exe;                                        // 程序完整路径
     std::string m_cwd;                                        // 程序所在目录
+    std::string m_startupCwd;                                 // 进程启动时的工作目录
 };
 
 typedef sylar::Singleton<Env> EnvMgr;

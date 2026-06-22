@@ -9,6 +9,7 @@ namespace sylar
 
 static sylar::ConfigVar<std::string>::ptr g_module_path =
     Config::Lookup("module.path", std::string("module"), "module path");
+static sylar::Logger::ptr g_logger = SYLAR_LOG_NAME("system");
 
 Module::Module(const std::string &name, const std::string &version, const std::string &filename)
     : m_name(name), m_version(version), m_filename(filename), m_id(name + "/" + version)
@@ -130,7 +131,22 @@ void ModuleManager::onConnect(Stream::ptr stream)
 
     for (auto &m : ms)
     {
-        m->onConnect(stream);
+        try
+        {
+            if (!m->onConnect(stream))
+            {
+                SYLAR_LOG_ERROR(g_logger) << "module onConnect failed id=" << m->getId();
+            }
+        }
+        catch (const std::exception &e)
+        {
+            SYLAR_LOG_ERROR(g_logger) << "module onConnect threw id=" << m->getId()
+                                      << " error=" << e.what();
+        }
+        catch (...)
+        {
+            SYLAR_LOG_ERROR(g_logger) << "module onConnect threw id=" << m->getId();
+        }
     }
 }
 
@@ -141,7 +157,74 @@ void ModuleManager::onDisconnect(Stream::ptr stream)
 
     for (auto &m : ms)
     {
-        m->onDisconnect(stream);
+        try
+        {
+            if (!m->onDisconnect(stream))
+            {
+                SYLAR_LOG_ERROR(g_logger) << "module onDisconnect failed id=" << m->getId();
+            }
+        }
+        catch (const std::exception &e)
+        {
+            SYLAR_LOG_ERROR(g_logger) << "module onDisconnect threw id=" << m->getId()
+                                      << " error=" << e.what();
+        }
+        catch (...)
+        {
+            SYLAR_LOG_ERROR(g_logger) << "module onDisconnect threw id=" << m->getId();
+        }
+    }
+}
+
+void ModuleManager::onServerReady()
+{
+    std::vector<Module::ptr> ms;
+    listAll(ms);
+
+    for (auto &m : ms)
+    {
+        try
+        {
+            if (!m->onServerReady())
+            {
+                SYLAR_LOG_ERROR(g_logger) << "module onServerReady failed id=" << m->getId();
+            }
+        }
+        catch (const std::exception &e)
+        {
+            SYLAR_LOG_ERROR(g_logger) << "module onServerReady threw id=" << m->getId()
+                                      << " error=" << e.what();
+        }
+        catch (...)
+        {
+            SYLAR_LOG_ERROR(g_logger) << "module onServerReady threw id=" << m->getId();
+        }
+    }
+}
+
+void ModuleManager::onServerUp()
+{
+    std::vector<Module::ptr> ms;
+    listAll(ms);
+
+    for (auto &m : ms)
+    {
+        try
+        {
+            if (!m->onServerUp())
+            {
+                SYLAR_LOG_ERROR(g_logger) << "module onServerUp failed id=" << m->getId();
+            }
+        }
+        catch (const std::exception &e)
+        {
+            SYLAR_LOG_ERROR(g_logger) << "module onServerUp threw id=" << m->getId()
+                                      << " error=" << e.what();
+        }
+        catch (...)
+        {
+            SYLAR_LOG_ERROR(g_logger) << "module onServerUp threw id=" << m->getId();
+        }
     }
 }
 
@@ -157,9 +240,18 @@ void ModuleManager::listAll(std::vector<Module::ptr> &ms)
 void ModuleManager::initModule(const std::string &path)
 {
     Module::ptr m = Library::GetModule(path);
-    if (m)
+    if (!m)
     {
-        add(m);
+        return;
     }
+
+    if (!m->onLoad())
+    {
+        SYLAR_LOG_ERROR(g_logger) << "module onLoad failed name=" << m->getName()
+                                  << " version=" << m->getVersion() << " path=" << path;
+        return;
+    }
+
+    add(m);
 }
 } // namespace sylar

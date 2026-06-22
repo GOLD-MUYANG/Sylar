@@ -464,7 +464,11 @@ public:
     /**
      * @brief 加载path文件夹里面的配置文件
      */
-    static void LoadFromConfDir(const std::string &path, bool force = false);
+    /**
+     * @brief 加载配置目录中的 YAML 文件。
+     * @return 目录可访问、至少包含一个 YAML 文件且所有加载均成功时返回 true。
+     */
+    static bool LoadFromConfDir(const std::string &path, bool force = false);
 
 private:
     static ConfigVarMap &GetDatas()

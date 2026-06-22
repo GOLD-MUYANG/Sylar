@@ -424,6 +424,7 @@ HttpConnectionPool::ptr HttpConnectionPool::Create(const std::string &uri,
     if (!turi)
     {
         SYLAR_LOG_ERROR(g_logger) << "invalid uri=" << uri;
+        return nullptr;
     }
     return std::make_shared<HttpConnectionPool>(turi->getHost(), vhost, turi->getPort(),
                                                 turi->getScheme() == "https", max_size,
@@ -593,6 +594,13 @@ HttpConnection::ptr HttpConnectionPool::getConnection(uint64_t timeout_ms)
                 --m_total;
                 notifyWaiter();
                 return nullptr;
+            }
+            if (m_isHttps)
+            {
+                auto ssl_socket = std::dynamic_pointer_cast<SSLSocket>(sock);
+                SSLSocket::ClientOptions options;
+                options.server_name = m_host;
+                ssl_socket->setClientOptions(options);
             }
             uint64_t connect_timeout_ms = MergeTimeout(timeout_ms, start_ms, timeout_ms);
             if (!sock->connect(addr, connect_timeout_ms))

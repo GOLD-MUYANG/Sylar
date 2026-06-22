@@ -28,6 +28,15 @@ bool Env::init(int argc, char **argv)
     // 获取程序所在目录
     auto pos = m_exe.find_last_of("/");
     m_cwd = m_exe.substr(0, pos) + "/"; // 目录路径以 / 结尾
+    //也就是加了个更安全的边界的判断，不过对于这种普通的程序其实我觉得是没有很大的必要的
+    char startup_cwd[1024] = {0};
+    if (!getcwd(startup_cwd, sizeof(startup_cwd)))
+    {
+        SYLAR_LOG_ERROR(g_logger) << "getcwd failed errno=" << errno
+                                  << " errstr=" << strerror(errno);
+        return false;
+    }
+    m_startupCwd = startup_cwd;
 
     m_program = argv[0]; // 保存 argv[0]，即程序名
 
@@ -173,6 +182,18 @@ std::string Env::getAbsolutePath(const std::string &path) const
 
 std::string Env::getConfigPath()
 {
-    return getAbsolutePath(get("c", "conf"));
+    if (!has("c"))
+    {
+        // 未显式指定配置时，默认配置随可执行文件部署。
+        return getAbsolutePath("conf");
+    }
+
+    std::string path = get("c");
+    if (path.empty() || path[0] == '/')
+    {
+        return path.empty() ? m_startupCwd : path;
+    }
+    // 显式 -c 是操作者输入，应相对启动目录而不是可执行文件目录解释。
+    return m_startupCwd + "/" + path;
 }
 } // namespace sylar

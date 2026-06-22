@@ -248,6 +248,10 @@ class HttpConnectionPool
 public:
     typedef std::shared_ptr<HttpConnectionPool> ptr;
     typedef Mutex MutexType;
+    /**
+     * @brief 从 URI 创建连接池。
+     * @return URI 无法解析时返回 nullptr。
+     */
     static HttpConnectionPool::ptr Create(const std::string &uri,
                                           const std::string &vhost,
                                           uint32_t max_size,

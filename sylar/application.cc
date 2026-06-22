@@ -5,6 +5,7 @@
 #include "sylar/log.h"
 #include "sylar/module.h"
 #include "sylar/worker.h"
+#include <atomic>
 #include <unistd.h>
 
 namespace sylar
@@ -146,7 +147,11 @@ bool Application::init(int argc, char **argv)
     // 加载配置
     std::string conf_path = sylar::EnvMgr::GetInstance()->getConfigPath();
     SYLAR_LOG_INFO(g_logger) << "load conf path:" << conf_path;
-    sylar::Config::LoadFromConfDir(conf_path);
+    if (!sylar::Config::LoadFromConfDir(conf_path))
+    {
+        SYLAR_LOG_ERROR(g_logger) << "load conf path failed: " << conf_path;
+        return false;
+    }
 
     //加载模块
     ModuleMgr::GetInstance()->init();
@@ -234,8 +239,8 @@ int Application::main(int argc, char **argv)
     SYLAR_LOG_INFO(g_logger) << "main";
 
     // 写 PID 文件
+    std::string pidfile = g_server_work_path->getValue() + "/" + g_server_pid_file->getValue();
     {
-        std::string pidfile = g_server_work_path->getValue() + "/" + g_server_pid_file->getValue();
         std::ofstream ofs(pidfile);
         if (!ofs)
         {
@@ -244,16 +249,33 @@ int Application::main(int argc, char **argv)
         }
         ofs << getpid();
     }
-
+    // starup_result用于接收run_fiber的结果，出现错误则会返回1，
+    // 例如invalid address、worker不存在、bind/证书失败
+    std::atomic<int> startup_result(0);
     m_mainIOManager.reset(new sylar::IOManager(1, true, "main"));
-    m_mainIOManager->schedule(std::bind(&Application::run_fiber, this));
-    m_mainIOManager->addTimer(
-        2000, []() {}, true);
+    m_mainIOManager->schedule([this, &startup_result]() { startup_result = run_fiber(); });
     m_mainIOManager->stop(); // 等待调度器完成
+
+    if (startup_result != 0)
+    {
+        for (auto &server : m_httpservers)
+        {
+            server->stop();
+        }
+        m_httpservers.clear();
+        WorkerMgr::GetInstance()->stop();
+        ModuleMgr::GetInstance()->delAll();
+        sylar::FSUtil::Unlink(pidfile);
+        return 1;
+    }
+
+    WorkerMgr::GetInstance()->stop();
+    ModuleMgr::GetInstance()->delAll();
+    sylar::FSUtil::Unlink(pidfile);
     return 0;
 }
 
-// 运行 Fiber 协程，负责启动 HTTP 服务器
+// 运行 Fiber 协程，负责启动 HTTP 服务器，出现错误则会返回1
 int Application::run_fiber()
 {
     sylar::WorkerMgr::GetInstance()->init();
@@ -304,7 +326,7 @@ int Application::run_fiber()
                 continue;
             }
             SYLAR_LOG_ERROR(g_logger) << "invalid address: " << a;
-            _exit(0);
+            return 1;
         }
         IOManager *accept_worker = sylar::IOManager::GetThis();
         IOManager *process_worker = sylar::IOManager::GetThis();
@@ -314,7 +336,7 @@ int Application::run_fiber()
             if (!accept_worker)
             {
                 SYLAR_LOG_ERROR(g_logger) << "accept_worker: " << i.accept_worker << " not exists";
-                _exit(0);
+                return 1;
             }
         }
         if (!i.process_worker.empty())
@@ -325,7 +347,7 @@ int Application::run_fiber()
             {
                 SYLAR_LOG_ERROR(g_logger)
                     << "process_worker: " << i.process_worker << " not exists";
-                _exit(0);
+                return 1;
             }
         }
 
@@ -359,7 +381,7 @@ int Application::run_fiber()
             {
                 SYLAR_LOG_ERROR(g_logger) << "bind address fail:" << *x;
             }
-            _exit(0); // 绑定失败直接退出
+            return 1;
         }
         if (i.ssl)
         {
@@ -367,15 +389,22 @@ int Application::run_fiber()
             {
                 SYLAR_LOG_ERROR(g_logger) << "loadCertificates fail, cert_file=" << i.cert_file
                                           << " key_file=" << i.key_file;
+                return 1;
             }
         }
         if (!i.name.empty())
         {
             server->setName(i.name); // 设置服务器名称
         }
-        server->start();                 // 启动服务器
-        m_httpservers.push_back(server); // 保存服务器实例
+        m_httpservers.push_back(server); // 所有 bind 成功后再统一启动。
     }
+
+    ModuleMgr::GetInstance()->onServerReady();
+    for (auto &server : m_httpservers)
+    {
+        server->start();
+    }
+    ModuleMgr::GetInstance()->onServerUp();
 
     // 主循环示例，只是为了让程序活着，如果是更正经的项目，后面应该是类似于这样
     /**

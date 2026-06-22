@@ -7,5 +7,5 @@ int main(int argc, char **argv)
     {
         return app.run();
     }
-    return 0;
+    return 1;
 }
