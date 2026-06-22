@@ -1,0 +1,181 @@
+Date : 2026-06-20 11:16:46
+Directory : /home/muyang/workspace/sylar
+Total : 141 files,  39608 codes, 3584 comments, 3348 blanks, all 46540 lines
+
+Languages
++--------------+------------+------------+------------+------------+------------+
+| language     | files      | code       | comment    | blank      | total      |
++--------------+------------+------------+------------+------------+------------+
+| C++          |        120 |     37,787 |      3,583 |      2,711 |     44,081 |
+| Markdown     |         15 |      1,602 |          0 |        608 |      2,210 |
+| CMake        |          2 |        157 |          0 |         22 |        179 |
+| YAML         |          3 |         34 |          0 |          2 |         36 |
+| Shell Script |          1 |         28 |          1 |          5 |         34 |
++--------------+------------+------------+------------+------------+------------+
+
+Directories
++----------------------------------------------------------------------------------+------------+------------+------------+------------+------------+
+| path                                                                             | files      | code       | comment    | blank      | total      |
++----------------------------------------------------------------------------------+------------+------------+------------+------------+------------+
+| .                                                                                |        141 |     39,608 |      3,584 |      3,348 |     46,540 |
+| . (Files)                                                                        |          4 |        306 |          1 |         84 |        391 |
+| .codex                                                                           |         10 |        655 |          0 |        284 |        939 |
+| bin                                                                              |          3 |         34 |          0 |          2 |         36 |
+| bin/conf                                                                         |          3 |         34 |          0 |          2 |         36 |
+| cmake                                                                            |          1 |         47 |          0 |          9 |         56 |
+| examples                                                                         |          1 |         77 |          4 |         12 |         93 |
+| sylar                                                                            |         91 |     35,066 |      3,093 |      2,205 |     40,364 |
+| sylar (Files)                                                                    |         54 |     19,729 |      1,103 |      1,186 |     22,018 |
+| sylar/http                                                                       |         35 |     14,731 |      1,980 |        943 |     17,654 |
+| sylar/util                                                                       |          2 |        606 |         10 |         76 |        692 |
+| tests                                                                            |         28 |      2,644 |        486 |        494 |      3,624 |
+| 文档                                                                               |          3 |        779 |          0 |        258 |      1,037 |
++----------------------------------------------------------------------------------+------------+------------+------------+------------+------------+
+
+Files
++----------------------------------------------------------------------------------+--------------+------------+------------+------------+------------+
+| filename                                                                         | language     | code       | comment    | blank      | total      |
++----------------------------------------------------------------------------------+--------------+------------+------------+------------+------------+
+| /home/muyang/workspace/sylar/.codex/2026-05-28修复HttpConnectionPool连接池.md         | Markdown     |         38 |          0 |         19 |         57 |
+| /home/muyang/workspace/sylar/.codex/2026-05-31统一HTTP客户端超时模型.md                   | Markdown     |         52 |          0 |         44 |         96 |
+| /home/muyang/workspace/sylar/.codex/2026-06-01收窄HttpRequestOptions测试边界.md        | Markdown     |         18 |          0 |         14 |         32 |
+| /home/muyang/workspace/sylar/.codex/2026-06-18完成HttpClient第三步.md                 | Markdown     |         44 |          0 |         17 |         61 |
+| /home/muyang/workspace/sylar/.codex/2026-06-18实现HttpClient多实例负载均衡前半部分.md         | Markdown     |         54 |          0 |         26 |         80 |
+| /home/muyang/workspace/sylar/.codex/2026-06-18实现HttpClient失败重试.md                | Markdown     |         57 |          0 |         24 |         81 |
+| /home/muyang/workspace/sylar/.codex/2026-06-19-完成第五步负载均衡后半部分.md                  | Markdown     |         24 |          0 |         13 |         37 |
+| /home/muyang/workspace/sylar/.codex/2026-06-19实现HTTP客户端限流保护.md                   | Markdown     |         33 |          0 |         18 |         51 |
+| /home/muyang/workspace/sylar/.codex/2026-06-20实现熔断降级.md                          | Markdown     |         46 |          0 |         23 |         69 |
+| /home/muyang/workspace/sylar/.codex/sylar_scheduler_iomanager_timer_hook_逻辑梳理.md | Markdown     |        289 |          0 |         86 |        375 |
+| /home/muyang/workspace/sylar/AGENTS.md                                           | Markdown     |         57 |          0 |         10 |         67 |
+| /home/muyang/workspace/sylar/CMakeLists.txt                                      | CMake        |        110 |          0 |         13 |        123 |
+| /home/muyang/workspace/sylar/README.md                                           | Markdown     |        111 |          0 |         56 |        167 |
+| /home/muyang/workspace/sylar/bin/conf/log.yml                                    | YAML         |         13 |          0 |          1 |         14 |
+| /home/muyang/workspace/sylar/bin/conf/server.yml                                 | YAML         |         16 |          0 |          1 |         17 |
+| /home/muyang/workspace/sylar/bin/conf/worker.yml                                 | YAML         |          5 |          0 |          0 |          5 |
+| /home/muyang/workspace/sylar/cmake/utils.cmake                                   | CMake        |         47 |          0 |          9 |         56 |
+| /home/muyang/workspace/sylar/examples/echo_server.cc                             | C++          |         77 |          4 |         12 |         93 |
+| /home/muyang/workspace/sylar/generate.sh                                         | Shell Script |         28 |          1 |          5 |         34 |
+| /home/muyang/workspace/sylar/sylar/address.cc                                    | C++          |        580 |         62 |         87 |        729 |
+| /home/muyang/workspace/sylar/sylar/address.h                                     | C++          |        132 |          2 |         19 |        153 |
+| /home/muyang/workspace/sylar/sylar/application.cc                                | C++          |        304 |         61 |         33 |        398 |
+| /home/muyang/workspace/sylar/sylar/application.h                                 | C++          |         27 |          0 |          9 |         36 |
+| /home/muyang/workspace/sylar/sylar/bytearray.cc                                  | C++          |        679 |         52 |         76 |        807 |
+| /home/muyang/workspace/sylar/sylar/bytearray.h                                   | C++          |        111 |         26 |         22 |        159 |
+| /home/muyang/workspace/sylar/sylar/config.cc                                     | C++          |        110 |          1 |          8 |        119 |
+| /home/muyang/workspace/sylar/sylar/config.h                                      | C++          |        432 |         15 |         35 |        482 |
+| /home/muyang/workspace/sylar/sylar/daemon.cc                                     | C++          |         81 |          2 |          7 |         90 |
+| /home/muyang/workspace/sylar/sylar/daemon.h                                      | C++          |         23 |         13 |          8 |         44 |
+| /home/muyang/workspace/sylar/sylar/endian.h                                      | C++          |         54 |          1 |          9 |         64 |
+| /home/muyang/workspace/sylar/sylar/env.cc                                        | C++          |        141 |         19 |         18 |        178 |
+| /home/muyang/workspace/sylar/sylar/env.h                                         | C++          |         43 |          0 |         11 |         54 |
+| /home/muyang/workspace/sylar/sylar/fd_manager.cc                                 | C++          |        116 |          6 |         10 |        132 |
+| /home/muyang/workspace/sylar/sylar/fd_manager.h                                  | C++          |         70 |          5 |         13 |         88 |
+| /home/muyang/workspace/sylar/sylar/fiber.cc                                      | C++          |        219 |         52 |         22 |        293 |
+| /home/muyang/workspace/sylar/sylar/fiber.h                                       | C++          |         60 |          7 |          9 |         76 |
+| /home/muyang/workspace/sylar/sylar/hook.cc                                       | C++          |        527 |         41 |         41 |        609 |
+| /home/muyang/workspace/sylar/sylar/hook.h                                        | C++          |         70 |          6 |         25 |        101 |
+| /home/muyang/workspace/sylar/sylar/http/http.cc                                  | C++          |        246 |          9 |         32 |        287 |
+| /home/muyang/workspace/sylar/sylar/http/http.h                                   | C++          |        460 |         22 |         45 |        527 |
+| /home/muyang/workspace/sylar/sylar/http/http11_common.h                          | C++          |          6 |          0 |          4 |         10 |
+| /home/muyang/workspace/sylar/sylar/http/http11_parser.h                          | C++          |         32 |          0 |          9 |         41 |
+| /home/muyang/workspace/sylar/sylar/http/http11_parser.rl.cc                      | C++          |      6,580 |         41 |         39 |      6,660 |
+| /home/muyang/workspace/sylar/sylar/http/http_circuit_breaker.cc                  | C++          |        181 |        127 |         51 |        359 |
+| /home/muyang/workspace/sylar/sylar/http/http_circuit_breaker.h                   | C++          |         74 |        125 |         37 |        236 |
+| /home/muyang/workspace/sylar/sylar/http/http_client.cc                           | C++          |        321 |        118 |         54 |        493 |
+| /home/muyang/workspace/sylar/sylar/http/http_client.h                            | C++          |        136 |        114 |         34 |        284 |
+| /home/muyang/workspace/sylar/sylar/http/http_concurrency_limiter.cc              | C++          |        206 |         27 |         26 |        259 |
+| /home/muyang/workspace/sylar/sylar/http/http_concurrency_limiter.h               | C++          |         71 |         15 |         20 |        106 |
+| /home/muyang/workspace/sylar/sylar/http/http_connection.cc                       | C++          |        781 |         42 |         56 |        879 |
+| /home/muyang/workspace/sylar/sylar/http/http_connection.h                        | C++          |        216 |        166 |         35 |        417 |
+| /home/muyang/workspace/sylar/sylar/http/http_load_balance_client.cc              | C++          |        432 |         88 |         75 |        595 |
+| /home/muyang/workspace/sylar/sylar/http/http_load_balance_client.h               | C++          |        157 |         21 |         27 |        205 |
+| /home/muyang/workspace/sylar/sylar/http/http_parser.cc                           | C++          |        273 |          8 |         47 |        328 |
+| /home/muyang/workspace/sylar/sylar/http/http_parser.h                            | C++          |         66 |          5 |         14 |         85 |
+| /home/muyang/workspace/sylar/sylar/http/http_request_options.cc                  | C++          |         16 |          0 |          4 |         20 |
+| /home/muyang/workspace/sylar/sylar/http/http_request_options.h                   | C++          |         18 |          3 |          7 |         28 |
+| /home/muyang/workspace/sylar/sylar/http/http_server.cc                           | C++          |         47 |          7 |          7 |         61 |
+| /home/muyang/workspace/sylar/sylar/http/http_server.h                            | C++          |         30 |          0 |          8 |         38 |
+| /home/muyang/workspace/sylar/sylar/http/http_session.cc                          | C++          |         80 |         13 |          7 |        100 |
+| /home/muyang/workspace/sylar/sylar/http/http_session.h                           | C++          |         19 |          0 |          4 |         23 |
+| /home/muyang/workspace/sylar/sylar/http/httpclient_parser.h                      | C++          |         31 |         33 |         11 |         75 |
+| /home/muyang/workspace/sylar/sylar/http/httpclient_parser.rl.cc                  | C++          |      3,252 |         41 |         45 |      3,338 |
+| /home/muyang/workspace/sylar/sylar/http/servlet.cc                               | C++          |        132 |          1 |         17 |        150 |
+| /home/muyang/workspace/sylar/sylar/http/servlet.h                                | C++          |         95 |          3 |         15 |        113 |
+| /home/muyang/workspace/sylar/sylar/http/ws_connection.cc                         | C++          |        138 |          0 |         13 |        151 |
+| /home/muyang/workspace/sylar/sylar/http/ws_connection.h                          | C++          |         29 |          0 |          5 |         34 |
+| /home/muyang/workspace/sylar/sylar/http/ws_server.cc                             | C++          |         56 |        107 |         23 |        186 |
+| /home/muyang/workspace/sylar/sylar/http/ws_server.h                              | C++          |         31 |         86 |         12 |        129 |
+| /home/muyang/workspace/sylar/sylar/http/ws_servlet.cc                            | C++          |         63 |          0 |         10 |         73 |
+| /home/muyang/workspace/sylar/sylar/http/ws_servlet.h                             | C++          |         87 |          0 |         14 |        101 |
+| /home/muyang/workspace/sylar/sylar/http/ws_session.cc                            | C++          |        285 |        486 |         95 |        866 |
+| /home/muyang/workspace/sylar/sylar/http/ws_session.h                             | C++          |         84 |        272 |         41 |        397 |
+| /home/muyang/workspace/sylar/sylar/iomanager.cc                                  | C++          |        374 |         42 |         34 |        450 |
+| /home/muyang/workspace/sylar/sylar/iomanager.h                                   | C++          |         62 |         10 |         12 |         84 |
+| /home/muyang/workspace/sylar/sylar/library.cc                                    | C++          |         72 |         11 |         14 |         97 |
+| /home/muyang/workspace/sylar/sylar/library.h                                     | C++          |         13 |          0 |          5 |         18 |
+| /home/muyang/workspace/sylar/sylar/log.cc                                        | C++          |        893 |         51 |         80 |      1,024 |
+| /home/muyang/workspace/sylar/sylar/log.h                                         | C++          |        295 |         12 |         50 |        357 |
+| /home/muyang/workspace/sylar/sylar/macro.h                                       | C++          |         27 |          0 |          4 |         31 |
+| /home/muyang/workspace/sylar/sylar/main.cc                                       | C++          |         10 |          0 |          1 |         11 |
+| /home/muyang/workspace/sylar/sylar/module.cc                                     | C++          |        132 |          7 |         26 |        165 |
+| /home/muyang/workspace/sylar/sylar/module.h                                      | C++          |         73 |          6 |         25 |        104 |
+| /home/muyang/workspace/sylar/sylar/mutex.cc                                      | C++          |         79 |          0 |         11 |         90 |
+| /home/muyang/workspace/sylar/sylar/mutex.h                                       | C++          |        283 |        178 |         65 |        526 |
+| /home/muyang/workspace/sylar/sylar/noncopyable.h                                 | C++          |         12 |          0 |          5 |         17 |
+| /home/muyang/workspace/sylar/sylar/scheduler.cc                                  | C++          |        293 |         93 |         38 |        424 |
+| /home/muyang/workspace/sylar/sylar/scheduler.h                                   | C++          |        135 |         21 |         20 |        176 |
+| /home/muyang/workspace/sylar/sylar/singleton.h                                   | C++          |         37 |          0 |          4 |         41 |
+| /home/muyang/workspace/sylar/sylar/socket.cc                                     | C++          |        686 |          2 |         70 |        758 |
+| /home/muyang/workspace/sylar/sylar/socket.h                                      | C++          |        144 |          4 |         33 |        181 |
+| /home/muyang/workspace/sylar/sylar/socket_stream.cc                              | C++          |         71 |          0 |         10 |         81 |
+| /home/muyang/workspace/sylar/sylar/socket_stream.h                               | C++          |         28 |          0 |          8 |         36 |
+| /home/muyang/workspace/sylar/sylar/stream.cc                                     | C++          |         64 |          0 |          6 |         70 |
+| /home/muyang/workspace/sylar/sylar/stream.h                                      | C++          |         25 |          0 |          6 |         31 |
+| /home/muyang/workspace/sylar/sylar/sylar.h                                       | C++          |         11 |          0 |          2 |         13 |
+| /home/muyang/workspace/sylar/sylar/tcp_server.cc                                 | C++          |        128 |          3 |         13 |        144 |
+| /home/muyang/workspace/sylar/sylar/tcp_server.h                                  | C++          |         55 |          3 |          7 |         65 |
+| /home/muyang/workspace/sylar/sylar/thread.cc                                     | C++          |         73 |         11 |         10 |         94 |
+| /home/muyang/workspace/sylar/sylar/thread.h                                      | C++          |         35 |         47 |         14 |         96 |
+| /home/muyang/workspace/sylar/sylar/timer.cc                                      | C++          |        227 |         29 |         19 |        275 |
+| /home/muyang/workspace/sylar/sylar/timer.h                                       | C++          |         63 |         12 |         12 |         87 |
+| /home/muyang/workspace/sylar/sylar/uri.h                                         | C++          |         80 |         96 |         27 |        203 |
+| /home/muyang/workspace/sylar/sylar/uri.rl.cc                                     | C++          |     10,867 |         49 |         22 |     10,938 |
+| /home/muyang/workspace/sylar/sylar/util.cc                                       | C++          |        324 |          9 |         26 |        359 |
+| /home/muyang/workspace/sylar/sylar/util.h                                        | C++          |         81 |          1 |          9 |         91 |
+| /home/muyang/workspace/sylar/sylar/util/hash_util.cc                             | C++          |        560 |          5 |         65 |        630 |
+| /home/muyang/workspace/sylar/sylar/util/hash_util.h                              | C++          |         46 |          5 |         11 |         62 |
+| /home/muyang/workspace/sylar/sylar/worker.cc                                     | C++          |        119 |         10 |         18 |        147 |
+| /home/muyang/workspace/sylar/sylar/worker.h                                      | C++          |         79 |         25 |         18 |        122 |
+| /home/muyang/workspace/sylar/tests/test.cc                                       | C++          |         23 |          0 |          1 |         24 |
+| /home/muyang/workspace/sylar/tests/test_address.cc                               | C++          |         47 |          4 |         10 |         61 |
+| /home/muyang/workspace/sylar/tests/test_application.cc                           | C++          |         10 |          0 |          1 |         11 |
+| /home/muyang/workspace/sylar/tests/test_bytearray.cc                             | C++          |         89 |          0 |          8 |         97 |
+| /home/muyang/workspace/sylar/tests/test_config.cc                                | C++          |        123 |         15 |         16 |        154 |
+| /home/muyang/workspace/sylar/tests/test_daemon.cc                                | C++          |         27 |          0 |          3 |         30 |
+| /home/muyang/workspace/sylar/tests/test_env.cc                                   | C++          |         43 |          2 |          6 |         51 |
+| /home/muyang/workspace/sylar/tests/test_fiber.cc                                 | C++          |         39 |          0 |          6 |         45 |
+| /home/muyang/workspace/sylar/tests/test_hook.cc                                  | C++          |         63 |          2 |         14 |         79 |
+| /home/muyang/workspace/sylar/tests/test_http.cc                                  | C++          |         25 |          0 |          4 |         29 |
+| /home/muyang/workspace/sylar/tests/test_http_circuit_breaker.cc                  | C++          |        189 |          0 |         38 |        227 |
+| /home/muyang/workspace/sylar/tests/test_http_client.cc                           | C++          |        354 |          0 |         46 |        400 |
+| /home/muyang/workspace/sylar/tests/test_http_concurrency_limiter.cc              | C++          |        187 |        145 |         67 |        399 |
+| /home/muyang/workspace/sylar/tests/test_http_connection.cc                       | C++          |        248 |         10 |         26 |        284 |
+| /home/muyang/workspace/sylar/tests/test_http_load_balance_client.cc              | C++          |        460 |        249 |        142 |        851 |
+| /home/muyang/workspace/sylar/tests/test_http_parser.cc                           | C++          |         55 |          0 |          8 |         63 |
+| /home/muyang/workspace/sylar/tests/test_http_request_options.cc                  | C++          |        254 |          0 |         35 |        289 |
+| /home/muyang/workspace/sylar/tests/test_http_server.cc                           | C++          |         38 |          0 |          6 |         44 |
+| /home/muyang/workspace/sylar/tests/test_iomanager.cc                             | C++          |         76 |         11 |          6 |         93 |
+| /home/muyang/workspace/sylar/tests/test_module.cc                                | C++          |         39 |          1 |         11 |         51 |
+| /home/muyang/workspace/sylar/tests/test_scheduler.cc                             | C++          |         22 |          4 |          5 |         31 |
+| /home/muyang/workspace/sylar/tests/test_socket.cc                                | C++          |         48 |          0 |          4 |         52 |
+| /home/muyang/workspace/sylar/tests/test_tcp_server.cc                            | C++          |         23 |          2 |          3 |         28 |
+| /home/muyang/workspace/sylar/tests/test_thread.cc                                | C++          |         71 |         35 |         16 |        122 |
+| /home/muyang/workspace/sylar/tests/test_uri.cc                                   | C++          |         10 |          5 |          1 |         16 |
+| /home/muyang/workspace/sylar/tests/test_util.cc                                  | C++          |         13 |          0 |          3 |         16 |
+| /home/muyang/workspace/sylar/tests/test_ws_client.cc                             | C++          |         36 |          1 |          4 |         41 |
+| /home/muyang/workspace/sylar/tests/test_ws_server.cc                             | C++          |         32 |          0 |          4 |         36 |
+| /home/muyang/workspace/sylar/文档/RPC模块任务书-暂时不使用.md                                | Markdown     |        335 |          0 |        116 |        451 |
+| /home/muyang/workspace/sylar/文档/压力测试.md                                          | Markdown     |        206 |          0 |         31 |        237 |
+| /home/muyang/workspace/sylar/文档/接下来要做什么.md                                       | Markdown     |        238 |          0 |        111 |        349 |
+| Total                                                                            |              |     39,608 |      3,584 |      3,348 |     46,540 |
++----------------------------------------------------------------------------------+--------------+------------+------------+------------+------------+
