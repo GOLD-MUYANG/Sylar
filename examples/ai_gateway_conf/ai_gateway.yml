@@ -1,0 +1,5 @@
+ai_gateway:
+  enabled: true
+  server_name: ai-gateway
+  provider_url: http://127.0.0.1:19001
+  request_timeout_ms: 800

@@ -1,0 +1,10 @@
+http_servers:
+  - address: ["127.0.0.1:18080"]
+    keepalive: 1
+    timeout: 1000
+    name: ai-gateway
+    accept_worker: accept
+    process_worker: io
+server:
+  work_path: /tmp/sylar-ai-gateway
+  pid_file: sylar.pid

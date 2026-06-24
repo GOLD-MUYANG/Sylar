@@ -3,6 +3,8 @@ project(sylar)
 enable_testing()
 
 include (cmake/utils.cmake)
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(JSONCPP REQUIRED jsoncpp)
 
 set(CMAKE_VERBOSE_MAKEFILE ON)
 # set(CMAKE_BUILD_TYPE "Debug") #生成可以debug的可执行文件
@@ -109,16 +111,48 @@ set_target_properties(test_module_lifecycle_plugin PROPERTIES
 )
 sylar_add_executable(test_module_lifecycle "tests/test_module_lifecycle.cc" test_module_lifecycle_plugin "${LIBS}")
 sylar_add_executable(test_tls_client_options "tests/test_tls_client_options.cc" sylar "${LIBS}")
+sylar_add_executable(test_module_config_timing "tests/test_module_config_timing.cc" sylar "${LIBS}")
+sylar_add_executable(test_ai_gateway_route_registry "tests/test_ai_gateway_route_registry.cc" sylar "${LIBS}")
+sylar_add_executable(test_ai_gateway_protocol
+    "tests/test_ai_gateway_protocol.cc;modules/ai_gateway/ai_gateway_protocol.cc"
+    sylar "${LIBS};${JSONCPP_LIBRARIES}")
+target_include_directories(test_ai_gateway_protocol PRIVATE ${JSONCPP_INCLUDE_DIRS})
+target_compile_options(test_ai_gateway_protocol PRIVATE ${JSONCPP_CFLAGS_OTHER})
+sylar_add_executable(test_ai_gateway_servlet
+                     "tests/test_ai_gateway_servlet.cc;modules/ai_gateway/ai_gateway_protocol.cc;modules/ai_gateway/ai_gateway_servlet.cc" sylar
+                     "${LIBS};${JSONCPP_LIBRARIES}")
+target_include_directories(test_ai_gateway_servlet PRIVATE ${JSONCPP_INCLUDE_DIRS})
+target_compile_options(test_ai_gateway_servlet PRIVATE ${JSONCPP_CFLAGS_OTHER})
+sylar_add_executable(mock_model_provider
+    "examples/mock_model_provider.cc;modules/ai_gateway/ai_gateway_protocol.cc"
+    sylar "${LIBS};${JSONCPP_LIBRARIES}")
+target_include_directories(mock_model_provider PRIVATE ${JSONCPP_INCLUDE_DIRS})
+target_compile_options(mock_model_provider PRIVATE ${JSONCPP_CFLAGS_OTHER})
+add_library(ai_gateway_module SHARED
+    modules/ai_gateway/ai_gateway_module.cc
+    modules/ai_gateway/ai_gateway_protocol.cc
+    modules/ai_gateway/ai_gateway_servlet.cc)
+target_include_directories(ai_gateway_module PRIVATE ${JSONCPP_INCLUDE_DIRS})
+target_compile_options(ai_gateway_module PRIVATE ${JSONCPP_CFLAGS_OTHER})
+target_link_libraries(ai_gateway_module PRIVATE sylar ${JSONCPP_LIBRARIES})
+set_target_properties(ai_gateway_module PROPERTIES
+    LIBRARY_OUTPUT_DIRECTORY ${PROJECT_SOURCE_DIR}/bin/module)
 
 add_test(NAME worker_group COMMAND $<TARGET_FILE:test_worker_group>)
 add_test(NAME env_config COMMAND $<TARGET_FILE:test_env_config>)
 add_test(NAME http_connection_pool COMMAND $<TARGET_FILE:test_http_connection_pool>)
 add_test(NAME module_lifecycle COMMAND $<TARGET_FILE:test_module_lifecycle>)
 add_test(NAME tls_client_options COMMAND $<TARGET_FILE:test_tls_client_options>)
+add_test(NAME module_config_timing COMMAND $<TARGET_FILE:test_module_config_timing>)
+add_test(NAME ai_gateway_route_registry COMMAND $<TARGET_FILE:test_ai_gateway_route_registry>)
+add_test(NAME ai_gateway_protocol COMMAND $<TARGET_FILE:test_ai_gateway_protocol>)
+add_test(NAME ai_gateway_servlet COMMAND $<TARGET_FILE:test_ai_gateway_servlet>)
 add_test(NAME startup_missing_config COMMAND $<TARGET_FILE:bin_sylar> -s -c /tmp/sylar-missing-config)
 set_tests_properties(startup_missing_config PROPERTIES WILL_FAIL TRUE)
 set_tests_properties(worker_group env_config http_connection_pool module_lifecycle tls_client_options
-                     startup_missing_config PROPERTIES LABELS "unit")
+                     module_config_timing ai_gateway_route_registry startup_missing_config
+                     PROPERTIES LABELS "unit")
+set_tests_properties(ai_gateway_protocol ai_gateway_servlet PROPERTIES LABELS "unit")
 # sylar_add_executable(test_uri "tests/test_uri.cc" sylar "${LIBS}")
 # sylar_add_executable(test_daemon "tests/test_daemon.cc" sylar "${LIBS}")
 # sylar_add_executable(test_application "tests/test_application.cc" sylar "${LIBS}")
@@ -126,6 +160,7 @@ set_tests_properties(worker_group env_config http_connection_pool module_lifecyc
 # sylar_add_executable(test_ws_client "tests/test_ws_client.cc" sylar "${LIBS}")
 sylar_add_executable(bin_sylar "sylar/main.cc" sylar "${LIBS}")
 set_target_properties(bin_sylar PROPERTIES OUTPUT_NAME "sylar")
+add_dependencies(bin_sylar ai_gateway_module)
 
 add_library(module SHARED tests/test_module.cc)
 target_link_libraries(module PRIVATE sylar)

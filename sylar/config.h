@@ -66,6 +66,29 @@ public:
     }
 };
 
+/**
+ * @brief 让 YAML 常用的 true/false 标量能映射到 ConfigVar<bool>。
+ */
+template <>
+class LexicalCast<std::string, bool>
+{
+public:
+    bool operator()(const std::string &v) const
+    {
+        std::string value = v;
+        std::transform(value.begin(), value.end(), value.begin(), ::tolower);
+        if (value == "true" || value == "1")
+        {
+            return true;
+        }
+        if (value == "false" || value == "0")
+        {
+            return false;
+        }
+        return boost::lexical_cast<bool>(v);
+    }
+};
+
 //其他类型的偏特化
 template <class T>
 class LexicalCast<std::string, std::vector<T>>

@@ -118,6 +118,18 @@ Application::Application()
     s_instance = this;
 }
 
+sylar::http::HttpServer::ptr Application::getHttpServer(const std::string &name) const
+{
+    for (auto &server : m_httpservers)
+    {
+        if (server && server->getName() == name)
+        {
+            return server;
+        }
+    }
+    return nullptr;
+}
+
 // 初始化应用程序
 bool Application::init(int argc, char **argv)
 {
