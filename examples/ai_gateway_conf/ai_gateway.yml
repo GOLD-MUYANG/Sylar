@@ -1,5 +1,12 @@
 ai_gateway:
   enabled: true
   server_name: ai-gateway
-  provider_url: http://127.0.0.1:19001
   request_timeout_ms: 800
+  load_balance: ROUND_ROBIN
+  providers:
+    - name: mock-a
+      url: http://127.0.0.1:19001
+      weight: 1
+    - name: mock-b
+      url: http://127.0.0.1:19002
+      weight: 1

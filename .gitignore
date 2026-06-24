@@ -47,4 +47,7 @@ log_*.txt
 
 .cache/
 
+# Local Git worktrees created during isolated feature development.
+.worktrees/
+
 Doxygen.config

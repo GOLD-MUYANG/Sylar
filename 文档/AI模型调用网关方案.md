@@ -1,6 +1,6 @@
 # AI 模型调用网关方案
 
-> 状态：G0、G1、G2 已实现并完成本地回环验证；G3–G5 仍待实现。本文件同时记录已落地的文件、验证边界和后续切片，避免把规划能力误写成现有能力。
+> 状态：G0、G1、G2、G3 已实现并完成本地回环验证；G4–G5 仍待实现。本文件同时记录已落地的文件、验证边界和后续切片，避免把规划能力误写成现有能力。
 >
 > 目标：在现有 Sylar HTTP 客户端能力之上，做一个**本地可运行、可注入故障、兼容 Chat Completions 非流式基础请求/响应形状的 AI 模型调用网关**。它不试图实现大模型推理；它要展示的是网关如何稳定地调用多个模型提供者。
 
@@ -14,10 +14,10 @@
         v
 AI Gateway（Sylar Application + ai_gateway 插件）
         |
-        | G2：HttpClient（G3 后替换为 HttpLoadBalanceClient）
-        +----> Mock Model A :9001
-        +----> Mock Model B :9002
-        +----> Mock Model C :9003（可选）
+        | G3：HttpLoadBalanceClient（ROUND_ROBIN + 同请求故障转移）
+        +----> Mock Model A :19001
+        +----> Mock Model B :19002
+        +----> Mock Model C（可选）
 ```
 
 这里的 `Mock Model` 是本地的“模型提供者模拟服务”，按配置返回固定文本、延迟或错误。第一版不用真实 OpenAI、DeepSeek 等 API，也不需要 API Key、外网或 GPU。
@@ -140,7 +140,7 @@ Content-Type: application/json
 
 ## 5. 运行时行为：如何演示已有能力
 
-下表是 G0–G5 完成后的演示矩阵；当前 G2 已验证“单 Provider 成功”和“全部不可用”的基础错误边界，其余场景仍待后续切片。
+下表是 G0–G5 完成后的演示矩阵；当前 G3 已验证正常轮询、A 到 B 的同请求故障转移，以及对外响应的 Provider 信息脱敏。熔断、健康检查和限流场景仍待 G4。
 
 | 演示场景 | 提供者状态 | 期望行为 | 证明的能力 |
 | --- | --- | --- | --- |
@@ -176,11 +176,13 @@ Content-Type: application/json
 - `AiGatewayServlet` 只校验协议、调用一份 `HttpClient` 并映射响应；实际下游 URL、超时和目标服务名来自配置。协议 JSON 集中在 `ai_gateway_protocol.*`。
 - `tests/test_ai_gateway_protocol.cc` 与 `tests/test_ai_gateway_servlet.cc` 覆盖协议、非法请求、成功映射和上游错误脱敏；已验证成功请求、`stream:true` 的 400 `INVALID_REQUEST`，以及 Provider 停止后的 502 `UPSTREAM_UNAVAILABLE`。
 
-### G3：接入多实例负载均衡和故障转移（待实现）
+### G3：接入多实例负载均衡和故障转移（已实现）
 
-- 将 G2 的单实例客户端替换为 `HttpLoadBalanceClient`，配置 A、B 两个 endpoint。
-- 先验证正常轮询，再验证 A 失败时同一业务请求落到 B。
-- 验证：运行日志、`/internal/status` 或测试断言能清楚证明请求路径；对外 Chat Completions 响应不暴露 provider 名。
+- `ai_gateway_upstream.*` 负责校验 Provider URL、构造 endpoint 和 `HttpLoadBalanceClient`；模块只读取配置并装配路由，Servlet 不参与选择逻辑。
+- `providers` 配置 A、B 两个 endpoint，`load_balance: ROUND_ROBIN` 使正常请求在两者间轮询。
+- 网关对本地 Mock 请求显式允许 POST 跨 endpoint 故障转移，但保持 `max_retry = 0`，不会对同一 endpoint 重复提交。
+- `tests/test_ai_gateway_load_balance.cc` 断言轮询、A 返回 503 时同请求落到 B，以及响应不暴露 provider 名或地址。
+- `scripts/demo_ai_gateway.sh` 启动 A、B，发送两次正常请求后停止 A 并发送第三次请求；Provider 日志证明流量路径。
 
 ### G4：接入 limiter、熔断与健康检查（待实现）
 
@@ -201,19 +203,26 @@ Content-Type: application/json
 
 真实 Provider 的扩展已移至同路径的 [真实提供商网关.md](真实提供商网关.md)。它是 G0–G5 本地 Mock 闭环完成后的独立工作项，不能阻塞离线演示或让 CI 依赖外网、真实 API Key。
 
-## 7. 当前 G2 配置与后续草图
+## 7. 当前 G3 配置与 G4 后续草图
 
-G2 已实现的配置位于 `bin/conf/ai_gateway.yml`；独立演示配置位于 `examples/ai_gateway_conf/`：
+G3 已实现的配置位于 `bin/conf/ai_gateway.yml`；独立演示配置位于 `examples/ai_gateway_conf/`：
 
 ```yaml
 ai_gateway:
   enabled: true
   server_name: ai-gateway
-  provider_url: http://127.0.0.1:19001
   request_timeout_ms: 800
+  load_balance: ROUND_ROBIN
+  providers:
+    - name: mock-a
+      url: http://127.0.0.1:19001
+      weight: 1
+    - name: mock-b
+      url: http://127.0.0.1:19002
+      weight: 1
 ```
 
-`server_name` 必须匹配 `server.yml` 中的 HTTP 服务名；当前只有一个 provider，因此 `provider_url` 是单值。G3、G4 进入后再将配置扩展为下列多实例治理草图：
+`server_name` 必须匹配 `server.yml` 中的 HTTP 服务名。G4 再在上述 G3 配置之上增加治理字段：
 
 ```yaml
 ai_gateway:
@@ -222,14 +231,6 @@ ai_gateway:
   request_deadline_ms: 800
   # 包含首次调用、单实例重试和 endpoint 故障转移的总下游尝试次数。
   max_total_attempts: 3
-  load_balance: WEIGHTED_ROUND_ROBIN
-  providers:
-    - name: mock-a
-      url: http://127.0.0.1:9001
-      weight: 2
-    - name: mock-b
-      url: http://127.0.0.1:9002
-      weight: 1
   # 示例值，实际值由网关压测结果和供应商配额决定。
   limiter:
     max_global_concurrency: 32
@@ -267,9 +268,9 @@ ai_gateway:
 6. 通过状态接口和日志解释每次路由、限流拒绝、熔断跳过或故障切换的原因。
 7. 每个核心行为都有对应的专用测试，不需要真实模型服务。
 
-当前已满足第 1 项的单 Provider 版本，以及第 7 项中 G0–G2 的测试要求；第 2–6 项依赖 G3–G5，尚未宣称完成。
+当前已满足第 1 项的双 Provider 版本、第 2 项的轮询、第 3 项的 A 到 B 故障转移，以及第 7 项中 G0–G3 的专用测试要求；第 4–6 项依赖 G4–G5，尚未宣称完成。
 
-## 10. 运行与验证（G0–G2）
+## 10. 运行与验证（G0–G3）
 
 ```bash
 cmake -S . -B build
@@ -284,4 +285,9 @@ cmake --build build --target mock_model_provider ai_gateway_module bin_sylar
 ./bin/test_ai_gateway_route_registry
 ./bin/test_ai_gateway_protocol
 ./bin/test_ai_gateway_servlet
+./bin/test_ai_gateway_load_balance
 ```
+
+`./scripts/demo_ai_gateway.sh` 会启动 `mock-a`、`mock-b` 与网关：前两次请求按轮询分配，脚本停止
+`mock-a` 后第三次请求会故障转移到 `mock-b`。响应不显示 Provider 名；脚本最后打印的本地 Provider
+日志用于证明实际路径。

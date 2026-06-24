@@ -6,6 +6,7 @@
 
 #include <cstdlib>
 #include <functional>
+#include <iostream>
 #include <string>
 #include <unistd.h>
 
@@ -127,9 +128,13 @@ void StartProvider(const ProviderOptions &options)
     // 这个路径故意模拟 OpenAI Chat Completions 接口。
     server->getServletDispatch()->addServlet(
         "/v1/chat/completions",
-        [options](sylar::http::HttpRequest::ptr, sylar::http::HttpResponse::ptr response,
+        [options](sylar::http::HttpRequest::ptr request, sylar::http::HttpResponse::ptr response,
                   sylar::http::HttpSession::ptr)
         {
+            // 仅用于本地演示：证明网关实际选择了哪个 Provider。
+            std::cerr << "mock provider received request name=" << options.name
+                      << " path=" << request->getPath() << std::endl;
+
             // 统一返回 JSON。
             response->setHeader("Content-Type", "application/json");
 

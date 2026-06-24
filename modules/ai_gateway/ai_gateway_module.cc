@@ -1,8 +1,8 @@
 #include "ai_gateway_servlet.h"
+#include "ai_gateway_upstream.h"
 
 #include "sylar/application.h"
 #include "sylar/env.h"
-#include "sylar/http/http_client.h"
 #include "sylar/log.h"
 #include "sylar/module.h"
 
@@ -27,20 +27,15 @@ struct AiGatewayConfig
     // 需要和框架里启动的 server name 对应
     std::string server_name;
 
-    // 上游模型服务地址，例如 http://127.0.0.1:9001
-    std::string provider_url;
+    // 多个上游模型服务实例。
+    std::vector<AiGatewayProviderConfig> providers;
+
+    // 多实例选择策略。
+    std::string load_balance = "ROUND_ROBIN";
 
     // 请求上游模型服务的超时时间，单位：毫秒
     uint64_t request_timeout_ms = 800;
 
-    // 配置比较函数
-    // 目前这段代码里没有直接用到，但如果后面接入配置热更新，
-    // 可以用它判断配置是否发生变化
-    bool operator==(const AiGatewayConfig &other) const
-    {
-        return enabled == other.enabled && server_name == other.server_name &&
-               provider_url == other.provider_url && request_timeout_ms == other.request_timeout_ms;
-    }
 };
 
 // 从 config/ai_gateway.yml 中读取 AI Gateway 配置
@@ -73,8 +68,21 @@ AiGatewayConfig LoadConfig()
         // 读取要挂载的 HTTP Server 名称
         config.server_name = node["server_name"].as<std::string>(config.server_name);
 
-        // 读取上游模型服务地址
-        config.provider_url = node["provider_url"].as<std::string>(config.provider_url);
+        config.load_balance = node["load_balance"].as<std::string>(config.load_balance);
+
+        // 读取多个上游模型服务实例。
+        YAML::Node providers = node["providers"];
+        if (providers && providers.IsSequence())
+        {
+            for (const auto &provider : providers)
+            {
+                AiGatewayProviderConfig item;
+                item.name = provider["name"].as<std::string>(item.name);
+                item.url = provider["url"].as<std::string>(item.url);
+                item.weight = provider["weight"].as<uint32_t>(item.weight);
+                config.providers.push_back(item);
+            }
+        }
 
         // 读取请求上游的超时时间
         config.request_timeout_ms =
@@ -116,10 +124,10 @@ public:
             return true;
         }
 
-        // 启用模块时，server_name 和 provider_url 都必须配置
-        if (config.server_name.empty() || config.provider_url.empty())
+        // 启用模块时，server_name 和至少一个 provider 都必须配置。
+        if (config.server_name.empty() || config.providers.empty())
         {
-            SYLAR_LOG_ERROR(g_logger) << "ai gateway requires server_name and provider_url";
+            SYLAR_LOG_ERROR(g_logger) << "ai gateway requires server_name and providers";
             return false;
         }
 
@@ -138,14 +146,13 @@ public:
             return false;
         }
 
-        // 根据 provider_url 创建 HTTP 客户端
-        // 这个 client 后面会负责把请求转发给上游模型服务
-        sylar::http::HttpClient::ptr client = sylar::http::HttpClient::Create(config.provider_url);
-
-        // provider_url 不合法时，Create 会失败
+        // 由独立组件校验 Provider URL 并创建多实例客户端。
+        std::string upstream_error;
+        sylar::http::HttpLoadBalanceClient::ptr client =
+            CreateLoadBalanceClient(config.providers, config.load_balance, &upstream_error);
         if (!client)
         {
-            SYLAR_LOG_ERROR(g_logger) << "ai gateway invalid provider url";
+            SYLAR_LOG_ERROR(g_logger) << "ai gateway invalid providers error=" << upstream_error;
             return false;
         }
 
@@ -155,15 +162,16 @@ public:
         // 捕获 client：
         //   保证 servlet 调用时还能访问这个 HTTP 客户端
         //
-        // 捕获 config：
-        //   使用里面的 request_timeout_ms
+        // 捕获 config：使用里面的 request_timeout_ms。
         AiGatewayServlet::UpstreamPost upstream = [client, config](const std::string &body)
         {
-            // 把客户端请求体原样转发到上游模型服务的 OpenAI 兼容接口
-            // 完整请求地址实际是：
-            //   provider_url + "/v1/chat/completions"
-            return client->post("/v1/chat/completions", config.request_timeout_ms,
-                                {{"Content-Type", "application/json"}}, body);
+            // G3 只允许在不同 Provider 间故障转移，不会对同一实例重复提交。
+            sylar::http::HttpRetryOptions retry_options;
+            retry_options.retry_non_idempotent = true;
+            return client->post(
+                "/v1/chat/completions",
+                sylar::http::HttpRequestOptions::FromTimeout(config.request_timeout_ms),
+                retry_options, {{"Content-Type", "application/json"}}, body);
         };
 
         // 向目标 HTTP Server 注册 OpenAI Chat Completions 兼容路由
