@@ -1,6 +1,6 @@
 # AI 模型调用网关方案
 
-> 状态：G0、G1、G2、G3 已实现并完成本地回环验证；G4–G5 仍待实现。本文件同时记录已落地的文件、验证边界和后续切片，避免把规划能力误写成现有能力。
+> 状态：G0、G1、G2、G3、G4 已实现并完成本地回归验证；G5 仍待实现。本文件同时记录已落地的文件、验证边界和后续切片，避免把规划能力误写成现有能力。
 >
 > 目标：在现有 Sylar HTTP 客户端能力之上，做一个**本地可运行、可注入故障、兼容 Chat Completions 非流式基础请求/响应形状的 AI 模型调用网关**。它不试图实现大模型推理；它要展示的是网关如何稳定地调用多个模型提供者。
 
@@ -14,7 +14,7 @@
         v
 AI Gateway（Sylar Application + ai_gateway 插件）
         |
-        | G3：HttpLoadBalanceClient（ROUND_ROBIN + 同请求故障转移）
+        | G4：HttpLoadBalanceClient（负载均衡 + 故障转移 + limiter/breaker）
         +----> Mock Model A :19001
         +----> Mock Model B :19002
         +----> Mock Model C（可选）
@@ -140,7 +140,7 @@ Content-Type: application/json
 
 ## 5. 运行时行为：如何演示已有能力
 
-下表是 G0–G5 完成后的演示矩阵；当前 G3 已验证正常轮询、A 到 B 的同请求故障转移，以及对外响应的 Provider 信息脱敏。熔断、健康检查和限流场景仍待 G4。
+下表是 G0–G5 完成后的演示矩阵；当前 G4 已验证正常轮询、A 到 B 的同请求故障转移、对外响应的 Provider 信息脱敏、endpoint QPS 限流切换、全部候选限流时返回 429、熔断后跳过失败 provider、启动时健康检查能力，以及 `max_total_attempts` 总尝试预算。状态接口仍待 G5。
 
 | 演示场景 | 提供者状态 | 期望行为 | 证明的能力 |
 | --- | --- | --- | --- |
@@ -184,15 +184,14 @@ Content-Type: application/json
 - `tests/test_ai_gateway_load_balance.cc` 断言轮询、A 返回 503 时同请求落到 B，以及响应不暴露 provider 名或地址。
 - `scripts/demo_ai_gateway.sh` 启动 A、B，发送两次正常请求后停止 A 并发送第三次请求；Provider 日志证明流量路径。
 
-### G4：接入 limiter、熔断与健康检查（待实现）
+### G4：接入 limiter、熔断与健康检查（已实现）
 
-- 根据网关可承受的并发量和模型供应商公开的并发/RPM 限额，配置全局、服务级和 endpoint 级出站上限；配置值不是固定常数，必须通过压测和供应商配额确定。
-- 准入失败时不排入无界队列：当前候选实例满额则继续尝试其他实例；全部候选都满额时快速返回 `RATE_LIMITED`，释放当前请求占用的资源。
-- 通过配置开启 endpoint 熔断器和健康检查；它们用于跳过已失败的实例，避免无谓等待，属于核心链路。
-- breaker 进入 `HALF_OPEN` 后，只允许 `half_open_max_requests` 个小于正常并发的探测请求进入（推荐默认 `1`）；在探测成功前不能恢复全部流量，探测失败立即重新打开。
-- 一次业务请求必须共享一个总 deadline 和总尝试预算：首次下游调用、单实例重试和故障转移都从同一预算扣减。每次尝试前检查剩余时间和次数；任一耗尽即结束请求，不在 Servlet 或适配器外再套无限循环，避免重试和故障转移叠加成请求风暴。
-- 配置健康检查，并针对三种故障状态建立回归测试。
-- 验证：按第 5 节故障矩阵逐项演示；压力超过上限时，网关的 in-flight 数保持有界，且请求不会无限等待。对成功、上游失败、超时、异常抛出和切换到另一 endpoint 的路径分别断言 permit 最终释放、in-flight 计数回到基线；不得只依赖人工观察。
+- `AiGatewayUpstreamOptions` 承接已有 `HttpConcurrencyLimiter` 与 `HttpCircuitBreaker` 参数，`ai_gateway_module` 从 `ai_gateway.yml` 读取 `limiter`、`circuit_breaker` 和 `health_check`，再交给 `HttpLoadBalanceClient`，网关层不重新实现限流或熔断状态机。
+- 准入失败时不排入无界队列：当前候选实例满额则继续尝试其他实例；全部候选都满额时返回 `RATE_LIMITED`，`AiGatewayServlet` 对外映射为 429 和 OpenAI 风格 `RATE_LIMITED` 错误对象。
+- endpoint 熔断器可通过配置开启；失败阈值、冷却时间和 `half_open_max_requests` 仍由 `HttpCircuitBreaker` 负责。`HALF_OPEN` 同时探测数默认保持为 `1`。
+- `request_deadline_ms` 作为一次业务请求的统一 timeout 输入；`max_total_attempts` 已进入 `HttpRetryOptions`，`HttpLoadBalanceClient` 在跨 endpoint 尝试前统一扣减预算，避免 retry 和 failover 叠加成请求风暴。
+- `health_check.enabled` 打开后，模块启动阶段调用 `HttpLoadBalanceClient::checkHealth()`，先标记不可用 endpoint；持续状态展示和人工可读原因仍留给 G5 的 `/internal/status`。
+- `tests/test_ai_gateway_load_balance.cc` 覆盖 endpoint QPS 限流后切换、所有候选限流后的 429、熔断打开后跳过失败 provider、健康检查标记失败 provider，以及 `max_total_attempts=1` 时不继续尝试下一 provider。`tests/test_ai_gateway_servlet.cc` 覆盖 `RATE_LIMITED` 不泄露内部错误文案。
 
 ### G5：补最小可观测性与演示材料（待实现）
 
@@ -203,16 +202,35 @@ Content-Type: application/json
 
 真实 Provider 的扩展已移至同路径的 [真实提供商网关.md](真实提供商网关.md)。它是 G0–G5 本地 Mock 闭环完成后的独立工作项，不能阻塞离线演示或让 CI 依赖外网、真实 API Key。
 
-## 7. 当前 G3 配置与 G4 后续草图
+## 7. 当前 G4 配置
 
-G3 已实现的配置位于 `bin/conf/ai_gateway.yml`；独立演示配置位于 `examples/ai_gateway_conf/`：
+当前已实现的配置位于 `bin/conf/ai_gateway.yml`；独立演示配置位于 `examples/ai_gateway_conf/`：
 
 ```yaml
 ai_gateway:
   enabled: true
   server_name: ai-gateway
   request_timeout_ms: 800
+  request_deadline_ms: 800
+  max_total_attempts: 3
   load_balance: ROUND_ROBIN
+  limiter:
+    max_global_concurrency: 32
+    max_service_concurrency: 0
+    max_endpoint_concurrency: 8
+    max_global_qps: 100
+    max_service_qps: 0
+    max_endpoint_qps: 20
+  circuit_breaker:
+    enabled: true
+    failure_threshold: 3
+    failure_rate_threshold: 0
+    open_timeout_ms: 5000
+    half_open_max_requests: 1
+  health_check:
+    enabled: false
+    path: /
+    timeout_ms: 500
   providers:
     - name: mock-a
       url: http://127.0.0.1:19001
@@ -222,28 +240,7 @@ ai_gateway:
       weight: 1
 ```
 
-`server_name` 必须匹配 `server.yml` 中的 HTTP 服务名。G4 再在上述 G3 配置之上增加治理字段：
-
-```yaml
-ai_gateway:
-  route: /v1/chat/completions
-  # 一次业务请求的总时限，不会因 retry/failover 重置。
-  request_deadline_ms: 800
-  # 包含首次调用、单实例重试和 endpoint 故障转移的总下游尝试次数。
-  max_total_attempts: 3
-  # 示例值，实际值由网关压测结果和供应商配额决定。
-  limiter:
-    max_global_concurrency: 32
-    max_global_qps: 100
-    max_endpoint_concurrency: 8
-    max_endpoint_qps: 20
-  circuit_breaker:
-    enabled: true
-    failure_threshold: 3
-    half_open_max_requests: 1
-```
-
-配置职责保持分开：endpoint/权重属于负载均衡；单次下游 I/O 超时受业务请求剩余 deadline 约束；总尝试预算由网关请求上下文统一维护；并发/QPS 准入属于 limiter；失败阈值、冷却时间与半开探测并发属于 breaker。真实模型供应商的 token/分钟限额、计费和语义风险见 [真实提供商网关.md](真实提供商网关.md)，不混入本地 Mock 闭环。
+`server_name` 必须匹配 `server.yml` 中的 HTTP 服务名。配置职责保持分开：endpoint/权重属于负载均衡；单次下游 I/O 超时受业务请求 deadline 约束；总尝试预算由 `HttpRetryOptions::max_total_attempts` 统一维护；并发/QPS 准入属于 limiter；失败阈值、冷却时间与半开探测并发属于 breaker。真实模型供应商的 token/分钟限额、计费和语义风险见 [真实提供商网关.md](真实提供商网关.md)，不混入本地 Mock 闭环。
 
 ## 8. 明确不做的内容
 
@@ -268,9 +265,9 @@ ai_gateway:
 6. 通过状态接口和日志解释每次路由、限流拒绝、熔断跳过或故障切换的原因。
 7. 每个核心行为都有对应的专用测试，不需要真实模型服务。
 
-当前已满足第 1 项的双 Provider 版本、第 2 项的轮询、第 3 项的 A 到 B 故障转移，以及第 7 项中 G0–G3 的专用测试要求；第 4–6 项依赖 G4–G5，尚未宣称完成。
+当前已满足第 1 项的双 Provider 版本、第 2 项的轮询、第 3 项的 A 到 B 故障转移、第 4 项的熔断/半开底层行为与网关熔断跳过、第 5 项的 limiter 快速拒绝/切换，以及第 7 项中 G0–G4 的专用测试要求；第 6 项依赖 G5 的 `/internal/status`，尚未宣称完成。
 
-## 10. 运行与验证（G0–G3）
+## 10. 运行与验证（G0–G4）
 
 ```bash
 cmake -S . -B build
@@ -278,7 +275,7 @@ cmake --build build --target mock_model_provider ai_gateway_module bin_sylar
 ./scripts/demo_ai_gateway.sh
 ```
 
-脚本会启动一个 `mock-a` 和网关，输出一次 Chat Completions 响应，并在退出时清理两个本地进程。单元验证入口为：
+脚本会启动 `mock-a`、`mock-b` 和网关，输出 Chat Completions 响应，并在退出时清理本地进程。单元验证入口为：
 
 ```bash
 ./bin/test_module_config_timing

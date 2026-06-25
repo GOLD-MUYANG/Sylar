@@ -32,6 +32,9 @@ struct HttpRetryOptions
     /// 最大重试次数，不包含首次请求。0 表示不重试，保持旧行为。
     uint32_t max_retry = 0;
 
+    /// 单次业务请求允许的最大下游尝试次数，0 表示不额外限制。
+    uint32_t max_total_attempts = 0;
+
     /// 每次重试前等待的基础间隔，单位毫秒。0 表示立即重试。
     uint64_t retry_interval_ms = 0;
 

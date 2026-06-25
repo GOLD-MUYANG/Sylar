@@ -49,6 +49,15 @@ sylar::http::HttpLoadBalanceClient::ptr CreateLoadBalanceClient(
     const std::string &strategy_name,
     std::string *error)
 {
+    return CreateLoadBalanceClient(providers, strategy_name, AiGatewayUpstreamOptions(), error);
+}
+
+sylar::http::HttpLoadBalanceClient::ptr CreateLoadBalanceClient(
+    const std::vector<AiGatewayProviderConfig> &providers,
+    const std::string &strategy_name,
+    const AiGatewayUpstreamOptions &options,
+    std::string *error)
+{
     if (error)
     {
         error->clear();
@@ -97,7 +106,8 @@ sylar::http::HttpLoadBalanceClient::ptr CreateLoadBalanceClient(
     }
 
     sylar::http::HttpLoadBalanceClient::ptr client =
-        sylar::http::HttpLoadBalanceClient::Create(endpoints, strategy);
+        sylar::http::HttpLoadBalanceClient::Create(
+            endpoints, strategy, options.limiter, options.circuit_breaker);
     if (!client)
     {
         SetError(error, "无法创建负载均衡客户端");

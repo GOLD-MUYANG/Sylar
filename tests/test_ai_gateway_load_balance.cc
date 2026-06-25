@@ -46,8 +46,11 @@ namespace
 class MockProviderServer
 {
 public:
-    MockProviderServer(const std::string &name, const std::string &content, bool fail = false)
-        : m_name(name), m_content(content), m_fail(fail)
+    MockProviderServer(const std::string &name,
+                       const std::string &content,
+                       bool fail = false,
+                       uint64_t delay_ms = 0)
+        : m_name(name), m_content(content), m_fail(fail), m_delayMs(delay_ms)
     {
         m_fd = socket_f(AF_INET, SOCK_STREAM, 0);
         EXPECT_TRUE(m_fd >= 0);
@@ -120,6 +123,10 @@ private:
         }
 
         ++m_requestCount;
+        if (m_delayMs > 0)
+        {
+            usleep(m_delayMs * 1000);
+        }
         const std::string body = m_fail
                                      ? sylar::ai_gateway::BuildErrorResponse(
                                            "mock failure", "server_error", "MOCK_PROVIDER_ERROR")
@@ -138,6 +145,7 @@ private:
     std::string m_name;
     std::string m_content;
     bool m_fail = false;
+    uint64_t m_delayMs = 0;
     int m_fd = -1;
     uint16_t m_port = 0;
     std::atomic<bool> m_stop{false};
@@ -171,7 +179,11 @@ Json::Value HandleCompletion(sylar::ai_gateway::AiGatewayServlet &servlet)
 }
 
 sylar::http::HttpLoadBalanceClient::ptr MakeClient(MockProviderServer &first,
-                                                   MockProviderServer &second)
+                                                   MockProviderServer &second,
+                                                   const std::string &strategy = "ROUND_ROBIN",
+                                                   const sylar::ai_gateway::AiGatewayUpstreamOptions
+                                                       &options = sylar::ai_gateway::
+                                                           AiGatewayUpstreamOptions())
 {
     std::vector<sylar::ai_gateway::AiGatewayProviderConfig> providers;
     sylar::ai_gateway::AiGatewayProviderConfig first_config;
@@ -184,7 +196,7 @@ sylar::http::HttpLoadBalanceClient::ptr MakeClient(MockProviderServer &first,
     providers.push_back(second_config);
 
     std::string error;
-    auto client = sylar::ai_gateway::CreateLoadBalanceClient(providers, "ROUND_ROBIN", &error);
+    auto client = sylar::ai_gateway::CreateLoadBalanceClient(providers, strategy, options, &error);
     EXPECT_TRUE(client != nullptr);
     return client;
 }
@@ -252,11 +264,141 @@ void test_invalid_provider_scheme_is_rejected()
     EXPECT_TRUE(!error.empty());
 }
 
+void test_endpoint_qps_limit_fails_over_to_available_provider()
+{
+    MockProviderServer first("mock-a", "from-a");
+    MockProviderServer available("mock-b", "from-b");
+    usleep(50 * 1000);
+
+    sylar::ai_gateway::AiGatewayUpstreamOptions options;
+    options.limiter.max_endpoint_qps = 1;
+    auto client = MakeClient(first, available, "WEIGHTED_ROUND_ROBIN", options);
+    if (!client)
+    {
+        return;
+    }
+    auto servlet = MakeServlet(client);
+
+    EXPECT_EQ(HandleCompletion(*servlet)["choices"][0]["message"]["content"].asString(), "from-a");
+    Json::Value root = HandleCompletion(*servlet);
+    EXPECT_EQ(root["choices"][0]["message"]["content"].asString(), "from-b");
+
+    EXPECT_EQ(first.getRequestCount(), 1U);
+    EXPECT_EQ(available.getRequestCount(), 1U);
+}
+
+void test_all_endpoint_qps_limited_returns_rate_limited()
+{
+    MockProviderServer provider_server("mock-a", "from-a");
+    usleep(50 * 1000);
+
+    std::vector<sylar::ai_gateway::AiGatewayProviderConfig> providers;
+    sylar::ai_gateway::AiGatewayProviderConfig provider;
+    provider.name = "mock-a";
+    provider.url = "http://127.0.0.1:" + std::to_string(provider_server.getPort());
+    providers.push_back(provider);
+
+    sylar::ai_gateway::AiGatewayUpstreamOptions options;
+    options.limiter.max_endpoint_qps = 1;
+    std::string error;
+    auto client =
+        sylar::ai_gateway::CreateLoadBalanceClient(providers, "ROUND_ROBIN", options, &error);
+    EXPECT_TRUE(client != nullptr);
+    if (!client)
+    {
+        return;
+    }
+
+    auto servlet = MakeServlet(client);
+    EXPECT_EQ(HandleCompletion(*servlet)["choices"][0]["message"]["content"].asString(), "from-a");
+
+    sylar::http::HttpResponse::ptr response(new sylar::http::HttpResponse);
+    EXPECT_EQ(servlet->handle(MakeRequest(), response, nullptr), 0);
+    EXPECT_EQ(response->getStatus(), sylar::http::HttpStatus::TOO_MANY_REQUESTS);
+    EXPECT_TRUE(response->getBody().find("RATE_LIMITED") != std::string::npos);
+
+    EXPECT_EQ(provider_server.getRequestCount(), 1U);
+}
+
+void test_circuit_breaker_skips_open_provider()
+{
+    MockProviderServer failed("mock-a", "", true);
+    MockProviderServer available("mock-b", "from-b");
+    usleep(50 * 1000);
+
+    sylar::ai_gateway::AiGatewayUpstreamOptions options;
+    options.circuit_breaker.enabled = true;
+    options.circuit_breaker.consecutive_failure_threshold = 1;
+    options.circuit_breaker.failure_rate_threshold = 0;
+    auto client = MakeClient(failed, available, "WEIGHTED_ROUND_ROBIN", options);
+    if (!client)
+    {
+        return;
+    }
+    auto servlet = MakeServlet(client);
+
+    EXPECT_EQ(HandleCompletion(*servlet)["choices"][0]["message"]["content"].asString(), "from-b");
+    EXPECT_EQ(HandleCompletion(*servlet)["choices"][0]["message"]["content"].asString(), "from-b");
+    EXPECT_EQ(failed.getRequestCount(), 1U);
+    EXPECT_EQ(available.getRequestCount(), 2U);
+}
+
+void test_max_total_attempts_stops_before_next_provider()
+{
+    MockProviderServer failed("mock-a", "", true);
+    MockProviderServer available("mock-b", "from-b");
+    usleep(50 * 1000);
+
+    auto client = MakeClient(failed, available);
+    if (!client)
+    {
+        return;
+    }
+
+    auto servlet = std::make_shared<sylar::ai_gateway::AiGatewayServlet>(
+        [client](const std::string &body) {
+            sylar::http::HttpRetryOptions retry_options;
+            retry_options.retry_non_idempotent = true;
+            retry_options.max_total_attempts = 1;
+            return client->post("/v1/chat/completions",
+                                sylar::http::HttpRequestOptions::FromTimeout(500), retry_options,
+                                {{"Content-Type", "application/json"}}, body);
+        });
+
+    sylar::http::HttpResponse::ptr response(new sylar::http::HttpResponse);
+    EXPECT_EQ(servlet->handle(MakeRequest(), response, nullptr), 0);
+    EXPECT_EQ(response->getStatus(), sylar::http::HttpStatus::BAD_GATEWAY);
+    EXPECT_EQ(failed.getRequestCount(), 1U);
+    EXPECT_EQ(available.getRequestCount(), 0U);
+}
+
+void test_health_check_marks_failed_provider_down()
+{
+    MockProviderServer failed("mock-a", "", true);
+    MockProviderServer available("mock-b", "from-b");
+    usleep(50 * 1000);
+
+    auto client = MakeClient(failed, available);
+    if (!client)
+    {
+        return;
+    }
+
+    EXPECT_EQ(client->checkHealth("/", sylar::http::HttpRequestOptions::FromTimeout(500)), 1U);
+    auto servlet = MakeServlet(client);
+    EXPECT_EQ(HandleCompletion(*servlet)["choices"][0]["message"]["content"].asString(), "from-b");
+}
+
 void RunTests()
 {
     test_round_robin_maps_two_providers();
     test_failed_provider_fails_over_without_leaking_provider();
     test_invalid_provider_scheme_is_rejected();
+    test_endpoint_qps_limit_fails_over_to_available_provider();
+    test_all_endpoint_qps_limited_returns_rate_limited();
+    test_circuit_breaker_skips_open_provider();
+    test_max_total_attempts_stops_before_next_provider();
+    test_health_check_marks_failed_provider_down();
 }
 
 } // namespace

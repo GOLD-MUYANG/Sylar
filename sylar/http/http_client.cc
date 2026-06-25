@@ -236,6 +236,15 @@ HttpResult::ptr HttpClient::request(HttpMethod method,
     HttpResult::ptr result;
     for (uint32_t retry_index = 0; retry_index <= retry_options.max_retry; ++retry_index)
     {
+        if (retry_options.max_total_attempts > 0 &&
+            retry_index >= retry_options.max_total_attempts)
+        {
+            return result ? result
+                          : std::make_shared<HttpResult>(
+                                (int)HttpResult::Error::CONNECT_FAIL, nullptr,
+                                "http client max total attempts exhausted");
+        }
+
         result = NormalizeResult(m_pool->doRequest(method, request_path, options, headers, body));
         if (retry_index >= retry_options.max_retry ||
             !ShouldRetry(method, result, retry_options))

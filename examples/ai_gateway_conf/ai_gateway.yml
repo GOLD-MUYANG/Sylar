@@ -2,7 +2,26 @@ ai_gateway:
   enabled: true
   server_name: ai-gateway
   request_timeout_ms: 800
+  request_deadline_ms: 800
+  max_total_attempts: 3
   load_balance: ROUND_ROBIN
+  limiter:
+    max_global_concurrency: 32
+    max_service_concurrency: 0
+    max_endpoint_concurrency: 8
+    max_global_qps: 100
+    max_service_qps: 0
+    max_endpoint_qps: 20
+  circuit_breaker:
+    enabled: true
+    failure_threshold: 3
+    failure_rate_threshold: 0
+    open_timeout_ms: 5000
+    half_open_max_requests: 1
+  health_check:
+    enabled: false
+    path: /
+    timeout_ms: 500
   providers:
     - name: mock-a
       url: http://127.0.0.1:19001

@@ -36,7 +36,36 @@ struct AiGatewayConfig
     // 请求上游模型服务的超时时间，单位：毫秒
     uint64_t request_timeout_ms = 800;
 
+    // 单次业务请求共享的总 deadline；缺省沿用 request_timeout_ms。
+    uint64_t request_deadline_ms = 800;
+
+    // 单次业务请求允许的最大下游尝试次数，0 表示由 endpoint 数和 retry 控制。
+    uint32_t max_total_attempts = 0;
+
+    // 启动时健康检查配置。持续状态展示留给 G5 的 /internal/status。
+    bool health_check_enabled = false;
+    std::string health_check_path = "/";
+    uint64_t health_check_timeout_ms = 500;
+
+    // 出站 limiter / breaker 治理参数。
+    AiGatewayUpstreamOptions upstream_options;
+
 };
+
+uint32_t ReadUint32(const YAML::Node &node, const char *key, uint32_t default_value)
+{
+    return node && node[key] ? node[key].as<uint32_t>(default_value) : default_value;
+}
+
+uint64_t ReadUint64(const YAML::Node &node, const char *key, uint64_t default_value)
+{
+    return node && node[key] ? node[key].as<uint64_t>(default_value) : default_value;
+}
+
+bool ReadBool(const YAML::Node &node, const char *key, bool default_value)
+{
+    return node && node[key] ? node[key].as<bool>(default_value) : default_value;
+}
 
 // 从 config/ai_gateway.yml 中读取 AI Gateway 配置
 AiGatewayConfig LoadConfig()
@@ -87,6 +116,64 @@ AiGatewayConfig LoadConfig()
         // 读取请求上游的超时时间
         config.request_timeout_ms =
             node["request_timeout_ms"].as<uint64_t>(config.request_timeout_ms);
+        config.request_deadline_ms =
+            node["request_deadline_ms"].as<uint64_t>(config.request_timeout_ms);
+        config.max_total_attempts =
+            node["max_total_attempts"].as<uint32_t>(config.max_total_attempts);
+
+        YAML::Node health_check = node["health_check"];
+        config.health_check_enabled =
+            ReadBool(health_check, "enabled", config.health_check_enabled);
+        config.health_check_path = health_check && health_check["path"]
+                                       ? health_check["path"].as<std::string>(
+                                             config.health_check_path)
+                                       : config.health_check_path;
+        config.health_check_timeout_ms = ReadUint64(
+            health_check, "timeout_ms", config.health_check_timeout_ms);
+
+        // 读取 G4 出站 limiter 配置。0 表示该维度不限制。
+        YAML::Node limiter = node["limiter"];
+        config.upstream_options.limiter.max_global_concurrency = ReadUint32(
+            limiter, "max_global_concurrency",
+            config.upstream_options.limiter.max_global_concurrency);
+        config.upstream_options.limiter.max_service_concurrency = ReadUint32(
+            limiter, "max_service_concurrency",
+            config.upstream_options.limiter.max_service_concurrency);
+        config.upstream_options.limiter.max_endpoint_concurrency = ReadUint32(
+            limiter, "max_endpoint_concurrency",
+            config.upstream_options.limiter.max_endpoint_concurrency);
+        config.upstream_options.limiter.max_global_qps =
+            ReadUint32(limiter, "max_global_qps", config.upstream_options.limiter.max_global_qps);
+        config.upstream_options.limiter.max_service_qps = ReadUint32(
+            limiter, "max_service_qps", config.upstream_options.limiter.max_service_qps);
+        config.upstream_options.limiter.max_endpoint_qps = ReadUint32(
+            limiter, "max_endpoint_qps", config.upstream_options.limiter.max_endpoint_qps);
+
+        // 读取 G4 endpoint 熔断配置。具体状态机仍由 HttpCircuitBreaker 负责。
+        YAML::Node circuit_breaker = node["circuit_breaker"];
+        config.upstream_options.circuit_breaker.enabled = ReadBool(
+            circuit_breaker, "enabled", config.upstream_options.circuit_breaker.enabled);
+        config.upstream_options.circuit_breaker.consecutive_failure_threshold = ReadUint32(
+            circuit_breaker, "failure_threshold",
+            config.upstream_options.circuit_breaker.consecutive_failure_threshold);
+        config.upstream_options.circuit_breaker.consecutive_failure_threshold = ReadUint32(
+            circuit_breaker, "consecutive_failure_threshold",
+            config.upstream_options.circuit_breaker.consecutive_failure_threshold);
+        config.upstream_options.circuit_breaker.failure_rate_threshold =
+            ReadUint32(circuit_breaker, "failure_rate_threshold",
+                       config.upstream_options.circuit_breaker.failure_rate_threshold);
+        config.upstream_options.circuit_breaker.failure_rate_min_request =
+            ReadUint32(circuit_breaker, "failure_rate_min_request",
+                       config.upstream_options.circuit_breaker.failure_rate_min_request);
+        config.upstream_options.circuit_breaker.failure_window_size =
+            ReadUint32(circuit_breaker, "failure_window_size",
+                       config.upstream_options.circuit_breaker.failure_window_size);
+        config.upstream_options.circuit_breaker.open_timeout_ms = ReadUint64(
+            circuit_breaker, "open_timeout_ms",
+            config.upstream_options.circuit_breaker.open_timeout_ms);
+        config.upstream_options.circuit_breaker.half_open_max_requests =
+            ReadUint32(circuit_breaker, "half_open_max_requests",
+                       config.upstream_options.circuit_breaker.half_open_max_requests);
     }
     catch (const std::exception &e)
     {
@@ -149,11 +236,21 @@ public:
         // 由独立组件校验 Provider URL 并创建多实例客户端。
         std::string upstream_error;
         sylar::http::HttpLoadBalanceClient::ptr client =
-            CreateLoadBalanceClient(config.providers, config.load_balance, &upstream_error);
+            CreateLoadBalanceClient(config.providers, config.load_balance, config.upstream_options,
+                                    &upstream_error);
         if (!client)
         {
             SYLAR_LOG_ERROR(g_logger) << "ai gateway invalid providers error=" << upstream_error;
             return false;
+        }
+
+        if (config.health_check_enabled)
+        {
+            size_t available = client->checkHealth(
+                config.health_check_path,
+                sylar::http::HttpRequestOptions::FromTimeout(config.health_check_timeout_ms));
+            SYLAR_LOG_INFO(g_logger) << "ai gateway health check available=" << available
+                                     << " total=" << config.providers.size();
         }
 
         // 构造一个上游 POST 调用函数
@@ -166,11 +263,13 @@ public:
         AiGatewayServlet::UpstreamPost upstream = [client, config](const std::string &body)
         {
             // G3 只允许在不同 Provider 间故障转移，不会对同一实例重复提交。
+            // G4 增加单次业务请求的总尝试预算。
             sylar::http::HttpRetryOptions retry_options;
             retry_options.retry_non_idempotent = true;
+            retry_options.max_total_attempts = config.max_total_attempts;
             return client->post(
                 "/v1/chat/completions",
-                sylar::http::HttpRequestOptions::FromTimeout(config.request_timeout_ms),
+                sylar::http::HttpRequestOptions::FromTimeout(config.request_deadline_ms),
                 retry_options, {{"Content-Type", "application/json"}}, body);
         };
 

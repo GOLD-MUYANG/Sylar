@@ -171,6 +171,7 @@ HttpResult::ptr HttpLoadBalanceClient::request(HttpMethod method,
         endpoint_count = m_endpoints.size();
     }
 
+    uint32_t total_attempts = 0;
     for (uint32_t retry_index = 0; retry_index <= retry_options.max_retry; ++retry_index)
     {
         // 记录当前这一轮请求已经尝试过的 endpoint。
@@ -178,12 +179,25 @@ HttpResult::ptr HttpLoadBalanceClient::request(HttpMethod method,
         std::vector<std::string> tried_endpoint_keys;
         for (size_t endpoint_try = 0; endpoint_try < endpoint_count; ++endpoint_try)
         {
+            if (retry_options.max_total_attempts > 0 &&
+                total_attempts >= retry_options.max_total_attempts)
+            {
+                if (result)
+                {
+                    return result;
+                }
+                return std::make_shared<HttpResult>(
+                    (int)HttpResult::Error::CONNECT_FAIL, nullptr,
+                    "http load balance client max total attempts exhausted");
+            }
+
             //选择一个终端
             HttpEndpoint::ptr endpoint = selectEndpoint(tried_endpoint_keys);
             if (!endpoint)
             {
                 break;
             }
+            ++total_attempts;
             std::string endpoint_key = endpoint->getLimitKey();
             tried_endpoint_keys.push_back(endpoint_key);
 

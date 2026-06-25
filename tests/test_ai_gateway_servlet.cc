@@ -114,6 +114,26 @@ void test_upstream_failure_hides_internal_error()
     EXPECT_EQ(root["error"]["code"].asString(), "UPSTREAM_UNAVAILABLE");
 }
 
+void test_rate_limited_upstream_maps_to_429()
+{
+    sylar::ai_gateway::AiGatewayServlet servlet([](const std::string &) {
+        return std::make_shared<sylar::http::HttpResult>(
+            (int)sylar::http::HttpResult::Error::RATE_LIMITED, nullptr,
+            "http client concurrency limited");
+    });
+    auto request = MakeRequest(
+        R"({"model":"demo-chat","messages":[{"role":"user","content":"hello"}]})");
+    sylar::http::HttpResponse::ptr response(new sylar::http::HttpResponse);
+
+    EXPECT_EQ(servlet.handle(request, response, nullptr), 0);
+    EXPECT_EQ(response->getStatus(), sylar::http::HttpStatus::TOO_MANY_REQUESTS);
+    EXPECT_TRUE(response->getBody().find("concurrency") == std::string::npos);
+
+    Json::Value root;
+    EXPECT_TRUE(ParseJson(response->getBody(), &root));
+    EXPECT_EQ(root["error"]["code"].asString(), "RATE_LIMITED");
+}
+
 } // namespace
 
 int main()
@@ -121,5 +141,6 @@ int main()
     test_valid_request_maps_provider_response();
     test_invalid_request_does_not_call_upstream();
     test_upstream_failure_hides_internal_error();
+    test_rate_limited_upstream_maps_to_429();
     return g_failures == 0 ? 0 : 1;
 }

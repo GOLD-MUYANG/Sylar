@@ -81,6 +81,14 @@ int32_t AiGatewayServlet::handle(sylar::http::HttpRequest::ptr request,
         !upstream_result->response ||
         upstream_result->response->getStatus() != sylar::http::HttpStatus::OK)
     {
+        if (upstream_result &&
+            upstream_result->result == (int)sylar::http::HttpResult::Error::RATE_LIMITED)
+        {
+            writeError(response, sylar::http::HttpStatus::TOO_MANY_REQUESTS,
+                       "上游模型服务当前请求过多", "rate_limit_error", "RATE_LIMITED");
+            return 0;
+        }
+
         // 对调用方来说，这是网关无法成功访问模型服务，所以返回 502。
         writeError(response, sylar::http::HttpStatus::BAD_GATEWAY, "没有可用的上游模型服务",
                    "server_error", "UPSTREAM_UNAVAILABLE");
