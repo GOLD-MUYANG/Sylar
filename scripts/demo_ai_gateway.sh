@@ -31,13 +31,21 @@ for _ in $(seq 1 20); do
     sleep 0.1
 done
 
-request_body='{"model":"demo-chat","messages":[{"role":"user","content":"解释熔断"}]}'
+request_body=$(tr -d '\n' < examples/ai_gateway_request.json)
+status_url="http://127.0.0.1:18080/internal/status"
+completion_url="http://127.0.0.1:18080/v1/chat/completions"
+
+echo '--- 初始状态（/internal/status） ---'
+status_body=$(curl -sS "$status_url")
+echo "$status_body"
+echo "$status_body" | grep -q '"name":"mock-a"'
+echo "$status_body" | grep -q '"name":"mock-b"'
 
 echo '--- 第 1 次请求（预期 mock-a） ---'
-curl -sS -X POST http://127.0.0.1:18080/v1/chat/completions -H 'Content-Type: application/json' -d "$request_body"
+curl -sS -X POST "$completion_url" -H 'Content-Type: application/json' -d "$request_body"
 echo
 echo '--- 第 2 次请求（预期 mock-b） ---'
-curl -sS -X POST http://127.0.0.1:18080/v1/chat/completions -H 'Content-Type: application/json' -d "$request_body"
+curl -sS -X POST "$completion_url" -H 'Content-Type: application/json' -d "$request_body"
 echo
 
 kill "$mock_pid"
@@ -45,8 +53,13 @@ wait "$mock_pid" 2>/dev/null || true
 mock_pid=""
 
 echo '--- 停止 mock-a 后的第 3 次请求（预期故障转移到 mock-b） ---'
-curl -sS -X POST http://127.0.0.1:18080/v1/chat/completions -H 'Content-Type: application/json' -d "$request_body"
+curl -sS -X POST "$completion_url" -H 'Content-Type: application/json' -d "$request_body"
 echo
+echo '--- 故障转移后的状态（/internal/status） ---'
+status_body=$(curl -sS "$status_url")
+echo "$status_body"
+echo "$status_body" | grep -q '"failure_count":'
+echo "$status_body" | grep -q '"last_failure_reason":'
 sleep 0.1
 echo '--- Provider 请求日志 ---'
 grep -h 'mock provider received request' "$log_dir"/mock-*.log

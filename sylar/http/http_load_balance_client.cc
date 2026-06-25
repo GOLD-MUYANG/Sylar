@@ -12,6 +12,34 @@ namespace http
 
 static sylar::Logger::ptr g_logger = SYLAR_LOG_NAME("system");
 
+const char *HttpEndpointStatusToString(HttpEndpointStatus status)
+{
+    switch (status)
+    {
+    case HttpEndpointStatus::UP:
+        return "UP";
+    case HttpEndpointStatus::DOWN:
+        return "DOWN";
+    default:
+        return "UNKNOWN";
+    }
+}
+
+const char *HttpCircuitBreakerStateToString(HttpCircuitBreakerState state)
+{
+    switch (state)
+    {
+    case HttpCircuitBreakerState::CLOSED:
+        return "CLOSED";
+    case HttpCircuitBreakerState::OPEN:
+        return "OPEN";
+    case HttpCircuitBreakerState::HALF_OPEN:
+        return "HALF_OPEN";
+    default:
+        return "UNKNOWN";
+    }
+}
+
 static bool HasEndpointBeenTried(const HttpEndpoint::ptr &endpoint,
                                  const std::vector<std::string> &tried_endpoint_keys)
 {
@@ -88,6 +116,26 @@ std::string HttpEndpoint::getLimitKey() const
     return ss.str();
 }
 
+HttpEndpointStatusSnapshot
+HttpEndpoint::snapshot(HttpCircuitBreakerState circuit_state) const
+{
+    MutexType::Lock lock(m_mutex);
+
+    HttpEndpointStatusSnapshot result;
+    result.endpoint_key = getLimitKey();
+    result.host = m_host;
+    result.port = m_port;
+    result.ssl = m_ssl;
+    result.health_status = m_status;
+    result.circuit_state = circuit_state;
+    result.active_requests = m_activeRequests;
+    result.success_count = m_successCount;
+    result.failure_count = m_failureCount;
+    result.rate_limited_count = m_rateLimitedCount;
+    result.last_failure_reason = m_lastFailureReason;
+    return result;
+}
+
 void HttpEndpoint::beginRequest()
 {
     MutexType::Lock lock(m_mutex);
@@ -101,6 +149,26 @@ void HttpEndpoint::endRequest()
     {
         --m_activeRequests;
     }
+}
+
+void HttpEndpoint::recordSuccess()
+{
+    MutexType::Lock lock(m_mutex);
+    ++m_successCount;
+}
+
+void HttpEndpoint::recordFailure(const std::string &reason)
+{
+    MutexType::Lock lock(m_mutex);
+    ++m_failureCount;
+    m_lastFailureReason = reason;
+}
+
+void HttpEndpoint::recordRateLimited(const std::string &reason)
+{
+    MutexType::Lock lock(m_mutex);
+    ++m_rateLimitedCount;
+    m_lastFailureReason = reason;
 }
 
 HttpLoadBalanceClient::ptr
@@ -211,6 +279,7 @@ HttpResult::ptr HttpLoadBalanceClient::request(HttpMethod method,
                 m_limiter ? m_limiter->tryAcquire(endpoint_key) : nullptr;
             if (!limit_guard)
             {
+                endpoint->recordRateLimited("http client concurrency limited");
                 endpoint->endRequest();
                 result = std::make_shared<HttpResult>((int)HttpResult::Error::RATE_LIMITED,
                                                       nullptr,
@@ -222,6 +291,7 @@ HttpResult::ptr HttpLoadBalanceClient::request(HttpMethod method,
                 m_circuitBreaker ? m_circuitBreaker->tryAcquire(endpoint_key) : nullptr;
             if (!circuit_guard)
             {
+                endpoint->recordFailure("http client circuit open");
                 endpoint->endRequest();
                 result = std::make_shared<HttpResult>((int)HttpResult::Error::CIRCUIT_OPEN,
                                                       nullptr, "http client circuit open");
@@ -244,6 +314,14 @@ HttpResult::ptr HttpLoadBalanceClient::request(HttpMethod method,
             if (m_circuitBreaker)
             {
                 m_circuitBreaker->onRequestComplete(endpoint_key, result);
+            }
+            if (result && result->result == (int)HttpResult::Error::OK)
+            {
+                endpoint->recordSuccess();
+            }
+            else
+            {
+                endpoint->recordFailure(result ? result->error : "empty http result");
             }
 
             if (!HttpClient::ShouldRetry(method, result, retry_options))
@@ -364,6 +442,33 @@ size_t HttpLoadBalanceClient::checkHealth(const std::string &path,
         }
     }
     return available;
+}
+
+std::vector<HttpEndpointStatusSnapshot> HttpLoadBalanceClient::getStatusSnapshots()
+{
+    std::vector<HttpEndpoint::ptr> endpoints;
+    {
+        MutexType::Lock lock(m_mutex);
+        endpoints = m_endpoints;
+    }
+
+    std::vector<HttpEndpointStatusSnapshot> snapshots;
+    snapshots.reserve(endpoints.size());
+    for (auto &endpoint : endpoints)
+    {
+        if (!endpoint)
+        {
+            continue;
+        }
+
+        HttpCircuitBreakerState circuit_state = HttpCircuitBreakerState::CLOSED;
+        if (m_circuitBreaker)
+        {
+            circuit_state = m_circuitBreaker->getState(endpoint->getLimitKey());
+        }
+        snapshots.push_back(endpoint->snapshot(circuit_state));
+    }
+    return snapshots;
 }
 
 HttpEndpoint::ptr

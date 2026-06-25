@@ -1,4 +1,5 @@
 #include "ai_gateway_servlet.h"
+#include "ai_gateway_status_servlet.h"
 #include "ai_gateway_upstream.h"
 
 #include "sylar/application.h"
@@ -284,6 +285,8 @@ public:
         // handle() 内部会解析请求、调用 upstream、处理上游返回或错误
         server->getServletDispatch()->addServlet("/v1/chat/completions",
                                                  std::make_shared<AiGatewayServlet>(upstream));
+        server->getServletDispatch()->addServlet(
+            "/internal/status", std::make_shared<AiGatewayStatusServlet>(config.providers, client));
 
         SYLAR_LOG_INFO(g_logger) << "ai gateway route registered server=" << config.server_name;
         return true;

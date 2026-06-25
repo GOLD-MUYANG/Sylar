@@ -1,0 +1,9 @@
+{
+  "model": "demo-chat",
+  "messages": [
+    {
+      "role": "user",
+      "content": "解释熔断"
+    }
+  ]
+}

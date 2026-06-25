@@ -24,6 +24,8 @@ enum class HttpEndpointStatus
     DOWN = 1,
 };
 
+const char *HttpEndpointStatusToString(HttpEndpointStatus status);
+
 /**
  * @brief 多实例 HTTP 客户端负载均衡策略。
  */
@@ -33,6 +35,28 @@ enum class HttpLoadBalanceStrategy
     RANDOM = 1,
     WEIGHTED_ROUND_ROBIN = 2,
     LEAST_CONNECTION = 3,
+};
+
+const char *HttpCircuitBreakerStateToString(HttpCircuitBreakerState state);
+
+/**
+ * @brief Endpoint 对外只读状态快照。
+ *
+ * 这个结构只用于观测面，不参与请求路由和治理决策。
+ */
+struct HttpEndpointStatusSnapshot
+{
+    std::string endpoint_key;
+    std::string host;
+    uint32_t port = 0;
+    bool ssl = false;
+    HttpEndpointStatus health_status = HttpEndpointStatus::UP;
+    HttpCircuitBreakerState circuit_state = HttpCircuitBreakerState::CLOSED;
+    uint32_t active_requests = 0;
+    uint64_t success_count = 0;
+    uint64_t failure_count = 0;
+    uint64_t rate_limited_count = 0;
+    std::string last_failure_reason;
 };
 
 /**
@@ -80,6 +104,7 @@ public:
     void setStatus(HttpEndpointStatus status);
     uint32_t getActiveRequestCount() const;
     std::string getLimitKey() const;
+    HttpEndpointStatusSnapshot snapshot(HttpCircuitBreakerState circuit_state) const;
 
 private:
     HttpEndpoint(const std::string &host,
@@ -95,6 +120,9 @@ private:
 
     void beginRequest();
     void endRequest();
+    void recordSuccess();
+    void recordFailure(const std::string &reason);
+    void recordRateLimited(const std::string &reason);
 
 private:
     std::string m_host;
@@ -103,6 +131,10 @@ private:
     uint32_t m_weight = 1;
     HttpEndpointStatus m_status = HttpEndpointStatus::UP;
     uint32_t m_activeRequests = 0;
+    uint64_t m_successCount = 0;
+    uint64_t m_failureCount = 0;
+    uint64_t m_rateLimitedCount = 0;
+    std::string m_lastFailureReason;
     HttpConnectionPool::ptr m_pool;
     mutable MutexType m_mutex;
 };
@@ -173,6 +205,7 @@ public:
 
     size_t checkHealth(const std::string &path = "/", uint64_t timeout_ms = 1000);
     size_t checkHealth(const std::string &path, const HttpRequestOptions &options);
+    std::vector<HttpEndpointStatusSnapshot> getStatusSnapshots();
 
 private:
     HttpLoadBalanceClient(const std::vector<HttpEndpoint::ptr> &endpoints,

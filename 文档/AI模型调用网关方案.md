@@ -1,6 +1,6 @@
 # AI 模型调用网关方案
 
-> 状态：G0、G1、G2、G3、G4 已实现并完成本地回归验证；G5 仍待实现。本文件同时记录已落地的文件、验证边界和后续切片，避免把规划能力误写成现有能力。
+> 状态：G0、G1、G2、G3、G4、G5 已实现并完成本地回归验证。本文件同时记录已落地的文件、验证边界和后续切片，避免把规划能力误写成现有能力。
 >
 > 目标：在现有 Sylar HTTP 客户端能力之上，做一个**本地可运行、可注入故障、兼容 Chat Completions 非流式基础请求/响应形状的 AI 模型调用网关**。它不试图实现大模型推理；它要展示的是网关如何稳定地调用多个模型提供者。
 
@@ -140,7 +140,7 @@ Content-Type: application/json
 
 ## 5. 运行时行为：如何演示已有能力
 
-下表是 G0–G5 完成后的演示矩阵；当前 G4 已验证正常轮询、A 到 B 的同请求故障转移、对外响应的 Provider 信息脱敏、endpoint QPS 限流切换、全部候选限流时返回 429、熔断后跳过失败 provider、启动时健康检查能力，以及 `max_total_attempts` 总尝试预算。状态接口仍待 G5。
+下表是 G0–G5 完成后的演示矩阵；当前已验证正常轮询、A 到 B 的同请求故障转移、对外响应的 Provider 信息脱敏、endpoint QPS 限流切换、全部候选限流时返回 429、熔断后跳过失败 provider、启动时健康检查能力、`max_total_attempts` 总尝试预算，以及只读 `/internal/status` 状态接口。
 
 | 演示场景 | 提供者状态 | 期望行为 | 证明的能力 |
 | --- | --- | --- | --- |
@@ -190,14 +190,15 @@ Content-Type: application/json
 - 准入失败时不排入无界队列：当前候选实例满额则继续尝试其他实例；全部候选都满额时返回 `RATE_LIMITED`，`AiGatewayServlet` 对外映射为 429 和 OpenAI 风格 `RATE_LIMITED` 错误对象。
 - endpoint 熔断器可通过配置开启；失败阈值、冷却时间和 `half_open_max_requests` 仍由 `HttpCircuitBreaker` 负责。`HALF_OPEN` 同时探测数默认保持为 `1`。
 - `request_deadline_ms` 作为一次业务请求的统一 timeout 输入；`max_total_attempts` 已进入 `HttpRetryOptions`，`HttpLoadBalanceClient` 在跨 endpoint 尝试前统一扣减预算，避免 retry 和 failover 叠加成请求风暴。
-- `health_check.enabled` 打开后，模块启动阶段调用 `HttpLoadBalanceClient::checkHealth()`，先标记不可用 endpoint；持续状态展示和人工可读原因仍留给 G5 的 `/internal/status`。
+- `health_check.enabled` 打开后，模块启动阶段调用 `HttpLoadBalanceClient::checkHealth()`，先标记不可用 endpoint；持续状态展示和人工可读原因由 G5 的 `/internal/status` 提供。
 - `tests/test_ai_gateway_load_balance.cc` 覆盖 endpoint QPS 限流后切换、所有候选限流后的 429、熔断打开后跳过失败 provider、健康检查标记失败 provider，以及 `max_total_attempts=1` 时不继续尝试下一 provider。`tests/test_ai_gateway_servlet.cc` 覆盖 `RATE_LIMITED` 不泄露内部错误文案。
 
-### G5：补最小可观测性与演示材料（待实现）
+### G5：补最小可观测性与演示材料（已实现）
 
-- 增加只读 `/internal/status`，显示每个 provider 的健康状态、熔断状态、in-flight 数、成功/失败/限流计数和最近一次失败原因。
+- 新增 `AiGatewayStatusServlet`，通过只读 `/internal/status` 显示每个 provider 的健康状态、熔断状态、in-flight 数、成功/失败/限流计数和最近一次失败原因。
+- `HttpLoadBalanceClient` 增加只读状态快照和 endpoint 计数，不把观测逻辑反向塞进 Servlet 转发链路。
 - 第一版不实现 Prometheus metrics，也不接 ELK/Grafana。
-- 增加一键演示脚本、配置样例、请求样例和故障切换说明。
+- `scripts/demo_ai_gateway.sh` 会启动双 Mock Provider 与网关，访问 `/internal/status`，再演示轮询和停止 `mock-a` 后故障转移到 `mock-b`；请求样例位于 `examples/ai_gateway_request.json`。
 - 可选：增加极简静态 HTML 页面；它只是演示入口，不应成为项目的重心。
 
 真实 Provider 的扩展已移至同路径的 [真实提供商网关.md](真实提供商网关.md)。它是 G0–G5 本地 Mock 闭环完成后的独立工作项，不能阻塞离线演示或让 CI 依赖外网、真实 API Key。
@@ -265,9 +266,9 @@ ai_gateway:
 6. 通过状态接口和日志解释每次路由、限流拒绝、熔断跳过或故障切换的原因。
 7. 每个核心行为都有对应的专用测试，不需要真实模型服务。
 
-当前已满足第 1 项的双 Provider 版本、第 2 项的轮询、第 3 项的 A 到 B 故障转移、第 4 项的熔断/半开底层行为与网关熔断跳过、第 5 项的 limiter 快速拒绝/切换，以及第 7 项中 G0–G4 的专用测试要求；第 6 项依赖 G5 的 `/internal/status`，尚未宣称完成。
+当前已满足第 1 项的双 Provider 版本、第 2 项的轮询、第 3 项的 A 到 B 故障转移、第 4 项的熔断/半开底层行为与网关熔断跳过、第 5 项的 limiter 快速拒绝/切换、第 6 项中 `/internal/status` 和日志解释当前路由/限流/熔断/故障切换原因的最小能力，以及第 7 项中 G0–G5 的专用测试要求。
 
-## 10. 运行与验证（G0–G4）
+## 10. 运行与验证（G0–G5）
 
 ```bash
 cmake -S . -B build
@@ -283,8 +284,10 @@ cmake --build build --target mock_model_provider ai_gateway_module bin_sylar
 ./bin/test_ai_gateway_protocol
 ./bin/test_ai_gateway_servlet
 ./bin/test_ai_gateway_load_balance
+./bin/test_ai_gateway_status
 ```
 
 `./scripts/demo_ai_gateway.sh` 会启动 `mock-a`、`mock-b` 与网关：前两次请求按轮询分配，脚本停止
-`mock-a` 后第三次请求会故障转移到 `mock-b`。响应不显示 Provider 名；脚本最后打印的本地 Provider
-日志用于证明实际路径。
+`mock-a` 后第三次请求会故障转移到 `mock-b`。脚本会在请求前后打印 `/internal/status`，状态中包含
+provider 名、endpoint、健康状态、熔断状态、in-flight 数、成功/失败/限流计数和最近失败原因。Chat Completions
+响应不显示 Provider 名；脚本最后打印的本地 Provider 日志用于证明实际路径。
