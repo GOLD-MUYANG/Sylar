@@ -1,10 +1,34 @@
 #include "http_session.h"
 #include "http_parser.h"
 
+#include <cerrno>
+
 namespace sylar
 {
 namespace http
 {
+namespace
+{
+
+bool IsTimeoutLikeError(int error)
+{
+    return error == EAGAIN || error == EWOULDBLOCK || error == ETIMEDOUT;
+}
+
+HttpSessionRecvRequestError ClassifyReadFailure(int len, int error)
+{
+    if (len == 0)
+    {
+        return HttpSessionRecvRequestError::CLIENT_CLOSED;
+    }
+    if (IsTimeoutLikeError(error))
+    {
+        return HttpSessionRecvRequestError::TIMEOUT;
+    }
+    return HttpSessionRecvRequestError::READ_ERROR;
+}
+
+} // namespace
 
 HttpSession::HttpSession(Socket::ptr sock, bool owner) : SocketStream(sock, owner)
 {
@@ -12,6 +36,9 @@ HttpSession::HttpSession(Socket::ptr sock, bool owner) : SocketStream(sock, owne
 
 HttpRequest::ptr HttpSession::recvRequest()
 {
+    m_lastRecvRequestError = HttpSessionRecvRequestError::NONE;
+    m_lastRecvRequestErrno = 0;
+
     HttpRequestParser::ptr parser(new HttpRequestParser);
     // 设置这个主要是为了避免请求体过大，超过一定大小直接认为是非法请求
     uint64_t buff_size = HttpRequestParser::GetHttpRequestBufferSize();
@@ -27,6 +54,8 @@ HttpRequest::ptr HttpSession::recvRequest()
         int len = read(data + offset, buff_size - offset);
         if (len <= 0)
         {
+            m_lastRecvRequestErrno = len < 0 ? errno : 0;
+            m_lastRecvRequestError = ClassifyReadFailure(len, m_lastRecvRequestErrno);
             close();
             return nullptr;
         }
@@ -36,6 +65,7 @@ HttpRequest::ptr HttpSession::recvRequest()
         size_t nparse = parser->execute(data, len);
         if (parser->hasError())
         {
+            m_lastRecvRequestError = HttpSessionRecvRequestError::PARSE_ERROR;
             close();
             return nullptr;
         }
@@ -43,6 +73,7 @@ HttpRequest::ptr HttpSession::recvRequest()
         offset = len - nparse;
         if (offset == (int)buff_size)
         {
+            m_lastRecvRequestError = HttpSessionRecvRequestError::REQUEST_TOO_LARGE;
             close();
             return nullptr;
         }
@@ -76,8 +107,12 @@ HttpRequest::ptr HttpSession::recvRequest()
         // 2、如果body还有数据，继续读,这次就是全读出来了（内部有while）
         if (length > 0)
         {
-            if (readFixSize(&body[len], length) <= 0)
+            int read_len = readFixSize(&body[len], length);
+            if (read_len <= 0)
             {
+                m_lastRecvRequestErrno = read_len < 0 ? errno : 0;
+                m_lastRecvRequestError =
+                    ClassifyReadFailure(read_len, m_lastRecvRequestErrno);
                 close();
                 return nullptr;
             }

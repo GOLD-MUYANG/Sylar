@@ -122,6 +122,26 @@ void StartProvider(const ProviderOptions &options)
     // 设置服务名，主要用于日志、调试、排查时区分不同 provider。
     server->setName("mock-model-provider/" + options.name);
 
+    // 健康检查路由：
+    // 网关启动时用它区分 A/B 正常和 C 未启动，不参与 Chat Completions 业务语义。
+    server->getServletDispatch()->addServlet(
+        "/health",
+        [options](sylar::http::HttpRequest::ptr, sylar::http::HttpResponse::ptr response,
+                  sylar::http::HttpSession::ptr)
+        {
+            response->setHeader("Content-Type", "application/json");
+            if (options.mode == "error")
+            {
+                response->setStatus(sylar::http::HttpStatus::SERVICE_UNAVAILABLE);
+                response->setBody(sylar::ai_gateway::BuildErrorResponse(
+                    "Mock Provider 健康检查失败", "server_error", "MOCK_PROVIDER_ERROR"));
+                return 0;
+            }
+
+            response->setBody("{\"status\":\"ok\"}");
+            return 0;
+        });
+
     // 注册 HTTP 路由：
     // 当请求路径是 /v1/chat/completions 时，执行这个 lambda。
     //

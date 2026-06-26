@@ -198,8 +198,8 @@ Content-Type: application/json
 - 新增 `AiGatewayStatusServlet`，通过只读 `/internal/status` 显示每个 provider 的健康状态、熔断状态、in-flight 数、成功/失败/限流计数和最近一次失败原因。
 - `HttpLoadBalanceClient` 增加只读状态快照和 endpoint 计数，不把观测逻辑反向塞进 Servlet 转发链路。
 - 第一版不实现 Prometheus metrics，也不接 ELK/Grafana。
-- `scripts/demo_ai_gateway.sh` 会启动双 Mock Provider 与网关，访问 `/internal/status`，再演示轮询和停止 `mock-a` 后故障转移到 `mock-b`；请求样例位于 `examples/ai_gateway_request.json`。
-- 可选：增加极简静态 HTML 页面；它只是演示入口，不应成为项目的重心。
+- `scripts/demo_ai_gateway.sh` 会启动 `mock-a`、`mock-b` 与网关，配置但不启动 `mock-c`，访问 `/internal/status`，再演示请求链路中跳过已 DOWN 的 `mock-c` 并落到正常 provider；请求样例位于 `examples/ai_gateway_request.json`。
+- 新增 `/demo` 本地 HTML 页面：页面文件位于 `modules/ai_gateway/ai_gateway_demo.html`，`AiGatewayDemoServlet` 只负责读取并返回该静态文件。页面发送带 `X-Ai-Gateway-Demo-Trace: 1` 的请求，读取 `X-Ai-Gateway-Trace` 响应头，把本次尝试的 endpoint、结果、HTTP 状态和错误摘要显示成请求过程时间线。该 trace 只在示例配置 `demo_trace_enabled: true` 时暴露，不改变对外 Chat Completions 响应体。
 
 真实 Provider 的扩展已移至同路径的 [真实提供商网关.md](真实提供商网关.md)。它是 G0–G5 本地 Mock 闭环完成后的独立工作项，不能阻塞离线演示或让 CI 依赖外网、真实 API Key。
 
@@ -274,6 +274,8 @@ ai_gateway:
 cmake -S . -B build
 cmake --build build --target mock_model_provider ai_gateway_module bin_sylar
 ./scripts/demo_ai_gateway.sh
+# 手动打开页面时使用：
+./scripts/demo_ai_gateway.sh --serve
 ```
 
 脚本会启动 `mock-a`、`mock-b` 和网关，输出 Chat Completions 响应，并在退出时清理本地进程。单元验证入口为：
@@ -285,9 +287,11 @@ cmake --build build --target mock_model_provider ai_gateway_module bin_sylar
 ./bin/test_ai_gateway_servlet
 ./bin/test_ai_gateway_load_balance
 ./bin/test_ai_gateway_status
+./bin/test_ai_gateway_demo_servlet
 ```
 
-`./scripts/demo_ai_gateway.sh` 会启动 `mock-a`、`mock-b` 与网关：前两次请求按轮询分配，脚本停止
-`mock-a` 后第三次请求会故障转移到 `mock-b`。脚本会在请求前后打印 `/internal/status`，状态中包含
-provider 名、endpoint、健康状态、熔断状态、in-flight 数、成功/失败/限流计数和最近失败原因。Chat Completions
-响应不显示 Provider 名；脚本最后打印的本地 Provider 日志用于证明实际路径。
+`./scripts/demo_ai_gateway.sh` 会启动 `mock-a`、`mock-b` 与网关，并故意不启动配置中的 `mock-c`。脚本会打印
+`http://127.0.0.1:18080/demo`；需要手动体验页面时可运行 `./scripts/demo_ai_gateway.sh --serve`，脚本会保持本地服务直到手动中断。页面上可以点击按钮发起请求并查看本次请求过程：启动健康检查会先把未启动的
+`mock-c` 标记为 DOWN，请求 trace 中会显示 `mock-c` 被跳过，然后落到正常 provider。脚本也会在请求前后打印 `/internal/status`，状态中包含 provider
+名、endpoint、健康状态、熔断状态、in-flight 数、成功/失败/限流计数和最近失败原因。Chat Completions 响应体
+不显示 Provider 名；增强版页面和脚本通过本地 demo trace 响应头证明实际路径。

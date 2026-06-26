@@ -1,3 +1,4 @@
+#include "ai_gateway_demo_servlet.h"
 #include "ai_gateway_servlet.h"
 #include "ai_gateway_status_servlet.h"
 #include "ai_gateway_upstream.h"
@@ -48,9 +49,11 @@ struct AiGatewayConfig
     std::string health_check_path = "/";
     uint64_t health_check_timeout_ms = 500;
 
+    // 本地演示页面使用的请求链路追踪。默认关闭，避免普通 API 暴露内部 endpoint。
+    bool demo_trace_enabled = false;
+
     // 出站 limiter / breaker 治理参数。
     AiGatewayUpstreamOptions upstream_options;
-
 };
 
 uint32_t ReadUint32(const YAML::Node &node, const char *key, uint32_t default_value)
@@ -121,6 +124,8 @@ AiGatewayConfig LoadConfig()
             node["request_deadline_ms"].as<uint64_t>(config.request_timeout_ms);
         config.max_total_attempts =
             node["max_total_attempts"].as<uint32_t>(config.max_total_attempts);
+        config.demo_trace_enabled =
+            node["demo_trace_enabled"].as<bool>(config.demo_trace_enabled);
 
         YAML::Node health_check = node["health_check"];
         config.health_check_enabled =
@@ -261,7 +266,9 @@ public:
         //   保证 servlet 调用时还能访问这个 HTTP 客户端
         //
         // 捕获 config：使用里面的 request_timeout_ms。
-        AiGatewayServlet::UpstreamPost upstream = [client, config](const std::string &body)
+        AiGatewayServlet::UpstreamPost upstream =
+            [client, config](const std::string &body,
+                             sylar::http::HttpLoadBalanceRequestTrace *trace)
         {
             // G3 只允许在不同 Provider 间故障转移，不会对同一实例重复提交。
             // G4 增加单次业务请求的总尝试预算。
@@ -271,7 +278,7 @@ public:
             return client->post(
                 "/v1/chat/completions",
                 sylar::http::HttpRequestOptions::FromTimeout(config.request_deadline_ms),
-                retry_options, {{"Content-Type", "application/json"}}, body);
+                retry_options, {{"Content-Type", "application/json"}}, body, trace);
         };
 
         // 向目标 HTTP Server 注册 OpenAI Chat Completions 兼容路由
@@ -283,10 +290,16 @@ public:
         //   AiGatewayServlet::handle()
         //
         // handle() 内部会解析请求、调用 upstream、处理上游返回或错误
-        server->getServletDispatch()->addServlet("/v1/chat/completions",
-                                                 std::make_shared<AiGatewayServlet>(upstream));
+        server->getServletDispatch()->addServlet(
+            "/v1/chat/completions",
+            std::make_shared<AiGatewayServlet>(upstream, config.demo_trace_enabled));
         server->getServletDispatch()->addServlet(
             "/internal/status", std::make_shared<AiGatewayStatusServlet>(config.providers, client));
+        if (config.demo_trace_enabled)
+        {
+            server->getServletDispatch()->addServlet("/demo",
+                                                     std::make_shared<AiGatewayDemoServlet>());
+        }
 
         SYLAR_LOG_INFO(g_logger) << "ai gateway route registered server=" << config.server_name;
         return true;

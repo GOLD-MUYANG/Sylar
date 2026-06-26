@@ -60,6 +60,28 @@ struct HttpEndpointStatusSnapshot
 };
 
 /**
+ * @brief 单次负载均衡请求中的一次 endpoint 尝试。
+ *
+ * 该结构只用于本地观测和演示，不参与路由决策。
+ */
+struct HttpLoadBalanceAttemptTrace
+{
+    std::string endpoint_key;
+    std::string outcome;
+    int result = 0;
+    int http_status = 0;
+    std::string reason;
+};
+
+/**
+ * @brief 单次负载均衡请求的尝试链路。
+ */
+struct HttpLoadBalanceRequestTrace
+{
+    std::vector<HttpLoadBalanceAttemptTrace> attempts;
+};
+
+/**
  * @brief HTTP 服务实例描述。
  *
  * 每个 Endpoint 持有自己的 HttpConnectionPool，便于后续在 Endpoint 维度扩展健康检查、
@@ -173,7 +195,8 @@ public:
                             const HttpRequestOptions &options,
                             const HttpRetryOptions &retry_options,
                             const std::map<std::string, std::string> &headers = {},
-                            const std::string &body = "");
+                            const std::string &body = "",
+                            HttpLoadBalanceRequestTrace *trace = nullptr);
 
     HttpResult::ptr get(const std::string &path,
                         uint64_t timeout_ms,
@@ -201,7 +224,8 @@ public:
                          const HttpRequestOptions &options,
                          const HttpRetryOptions &retry_options,
                          const std::map<std::string, std::string> &headers = {},
-                         const std::string &body = "");
+                         const std::string &body = "",
+                         HttpLoadBalanceRequestTrace *trace = nullptr);
 
     size_t checkHealth(const std::string &path = "/", uint64_t timeout_ms = 1000);
     size_t checkHealth(const std::string &path, const HttpRequestOptions &options);

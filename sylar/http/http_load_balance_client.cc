@@ -59,6 +59,44 @@ static bool HasEndpointBeenTried(const HttpEndpoint::ptr &endpoint,
     return false;
 }
 
+static void AppendTraceAttempt(HttpLoadBalanceRequestTrace *trace,
+                               const std::string &endpoint_key,
+                               const std::string &outcome,
+                               const HttpResult::ptr &result,
+                               const std::string &reason)
+{
+    if (!trace)
+    {
+        return;
+    }
+
+    HttpLoadBalanceAttemptTrace attempt;
+    attempt.endpoint_key = endpoint_key;
+    attempt.outcome = outcome;
+    attempt.result = result ? result->result : 0;
+    attempt.http_status = result && result->response ? (int)result->response->getStatus() : 0;
+    attempt.reason = reason;
+    trace->attempts.push_back(attempt);
+}
+
+static void AppendDownEndpointTrace(HttpLoadBalanceRequestTrace *trace,
+                                    const std::vector<HttpEndpoint::ptr> &endpoints)
+{
+    if (!trace)
+    {
+        return;
+    }
+
+    for (auto &endpoint : endpoints)
+    {
+        if (endpoint && endpoint->getStatus() == HttpEndpointStatus::DOWN)
+        {
+            AppendTraceAttempt(trace, endpoint->getLimitKey(), "skipped_down", nullptr,
+                               "endpoint health down");
+        }
+    }
+}
+
 HttpEndpoint::ptr HttpEndpoint::Create(const std::string &host,
                                        uint32_t port,
                                        bool ssl,
@@ -229,7 +267,8 @@ HttpResult::ptr HttpLoadBalanceClient::request(HttpMethod method,
                                                const HttpRequestOptions &options,
                                                const HttpRetryOptions &retry_options,
                                                const std::map<std::string, std::string> &headers,
-                                               const std::string &body)
+                                               const std::string &body,
+                                               HttpLoadBalanceRequestTrace *trace)
 {
     std::string request_path = path.empty() ? "/" : path;
     HttpResult::ptr result;
@@ -237,6 +276,7 @@ HttpResult::ptr HttpLoadBalanceClient::request(HttpMethod method,
     {
         MutexType::Lock lock(m_mutex);
         endpoint_count = m_endpoints.size();
+        AppendDownEndpointTrace(trace, m_endpoints);
     }
 
     uint32_t total_attempts = 0;
@@ -284,6 +324,7 @@ HttpResult::ptr HttpLoadBalanceClient::request(HttpMethod method,
                 result = std::make_shared<HttpResult>((int)HttpResult::Error::RATE_LIMITED,
                                                       nullptr,
                                                       "http client concurrency limited");
+                AppendTraceAttempt(trace, endpoint_key, "rate_limited", result, result->error);
                 continue;
             }
 
@@ -295,6 +336,7 @@ HttpResult::ptr HttpLoadBalanceClient::request(HttpMethod method,
                 endpoint->endRequest();
                 result = std::make_shared<HttpResult>((int)HttpResult::Error::CIRCUIT_OPEN,
                                                       nullptr, "http client circuit open");
+                AppendTraceAttempt(trace, endpoint_key, "circuit_open", result, result->error);
                 continue;
             }
 
@@ -318,10 +360,13 @@ HttpResult::ptr HttpLoadBalanceClient::request(HttpMethod method,
             if (result && result->result == (int)HttpResult::Error::OK)
             {
                 endpoint->recordSuccess();
+                AppendTraceAttempt(trace, endpoint_key, "success", result, "");
             }
             else
             {
                 endpoint->recordFailure(result ? result->error : "empty http result");
+                AppendTraceAttempt(trace, endpoint_key, "failure", result,
+                                   result ? result->error : "empty http result");
             }
 
             if (!HttpClient::ShouldRetry(method, result, retry_options))
@@ -400,9 +445,10 @@ HttpResult::ptr HttpLoadBalanceClient::post(const std::string &path,
                                             const HttpRequestOptions &options,
                                             const HttpRetryOptions &retry_options,
                                             const std::map<std::string, std::string> &headers,
-                                            const std::string &body)
+                                            const std::string &body,
+                                            HttpLoadBalanceRequestTrace *trace)
 {
-    return request(HttpMethod::POST, path, options, retry_options, headers, body);
+    return request(HttpMethod::POST, path, options, retry_options, headers, body, trace);
 }
 
 size_t HttpLoadBalanceClient::checkHealth(const std::string &path, uint64_t timeout_ms)

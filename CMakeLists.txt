@@ -96,6 +96,8 @@ set(LIBS
 # sylar_add_executable(echo_server "examples/echo_server.cc" sylar "${LIBS}")
 # sylar_add_executable(test_http_server "tests/test_http_server.cc" sylar "${LIBS}")
 sylar_add_executable(test_http_connection "tests/test_http_connection.cc" sylar "${LIBS}")
+sylar_add_executable(test_http_session_recv_error "tests/test_http_session_recv_error.cc" sylar
+                     "${LIBS}")
 sylar_add_executable(test_http_request_options "tests/test_http_request_options.cc" sylar "${LIBS}")
 sylar_add_executable(test_http_client "tests/test_http_client.cc" sylar "${LIBS}")
 sylar_add_executable(test_http_circuit_breaker "tests/test_http_circuit_breaker.cc" sylar "${LIBS}")
@@ -133,6 +135,9 @@ sylar_add_executable(test_ai_gateway_status
     sylar "${LIBS};${JSONCPP_LIBRARIES}")
 target_include_directories(test_ai_gateway_status PRIVATE ${JSONCPP_INCLUDE_DIRS})
 target_compile_options(test_ai_gateway_status PRIVATE ${JSONCPP_CFLAGS_OTHER})
+sylar_add_executable(test_ai_gateway_demo_servlet
+    "tests/test_ai_gateway_demo_servlet.cc;modules/ai_gateway/ai_gateway_demo_servlet.cc"
+    sylar "${LIBS}")
 sylar_add_executable(mock_model_provider
     "examples/mock_model_provider.cc;modules/ai_gateway/ai_gateway_protocol.cc"
     sylar "${LIBS};${JSONCPP_LIBRARIES}")
@@ -141,6 +146,7 @@ target_compile_options(mock_model_provider PRIVATE ${JSONCPP_CFLAGS_OTHER})
 add_library(ai_gateway_module SHARED
     modules/ai_gateway/ai_gateway_module.cc
     modules/ai_gateway/ai_gateway_protocol.cc
+    modules/ai_gateway/ai_gateway_demo_servlet.cc
     modules/ai_gateway/ai_gateway_servlet.cc
     modules/ai_gateway/ai_gateway_status_servlet.cc
     modules/ai_gateway/ai_gateway_upstream.cc)
@@ -151,6 +157,7 @@ set_target_properties(ai_gateway_module PROPERTIES
     LIBRARY_OUTPUT_DIRECTORY ${PROJECT_SOURCE_DIR}/bin/module)
 
 add_test(NAME worker_group COMMAND $<TARGET_FILE:test_worker_group>)
+add_test(NAME http_session_recv_error COMMAND $<TARGET_FILE:test_http_session_recv_error>)
 add_test(NAME env_config COMMAND $<TARGET_FILE:test_env_config>)
 add_test(NAME http_connection_pool COMMAND $<TARGET_FILE:test_http_connection_pool>)
 add_test(NAME module_lifecycle COMMAND $<TARGET_FILE:test_module_lifecycle>)
@@ -161,13 +168,16 @@ add_test(NAME ai_gateway_protocol COMMAND $<TARGET_FILE:test_ai_gateway_protocol
 add_test(NAME ai_gateway_servlet COMMAND $<TARGET_FILE:test_ai_gateway_servlet>)
 add_test(NAME ai_gateway_load_balance COMMAND $<TARGET_FILE:test_ai_gateway_load_balance>)
 add_test(NAME ai_gateway_status COMMAND $<TARGET_FILE:test_ai_gateway_status>)
+add_test(NAME ai_gateway_demo_servlet COMMAND $<TARGET_FILE:test_ai_gateway_demo_servlet>)
 add_test(NAME startup_missing_config COMMAND $<TARGET_FILE:bin_sylar> -s -c /tmp/sylar-missing-config)
 set_tests_properties(startup_missing_config PROPERTIES WILL_FAIL TRUE)
-set_tests_properties(worker_group env_config http_connection_pool module_lifecycle tls_client_options
-                     module_config_timing ai_gateway_route_registry startup_missing_config
+set_tests_properties(worker_group http_session_recv_error env_config http_connection_pool
+                     module_lifecycle tls_client_options module_config_timing
+                     ai_gateway_route_registry startup_missing_config
                      PROPERTIES LABELS "unit")
 set_tests_properties(ai_gateway_protocol ai_gateway_servlet PROPERTIES LABELS "unit")
-set_tests_properties(ai_gateway_load_balance ai_gateway_status PROPERTIES LABELS "unit")
+set_tests_properties(ai_gateway_load_balance ai_gateway_status ai_gateway_demo_servlet PROPERTIES
+                     LABELS "unit")
 # sylar_add_executable(test_uri "tests/test_uri.cc" sylar "${LIBS}")
 # sylar_add_executable(test_daemon "tests/test_daemon.cc" sylar "${LIBS}")
 # sylar_add_executable(test_application "tests/test_application.cc" sylar "${LIBS}")

@@ -5,6 +5,7 @@
 #include "sylar/log.h"
 
 #include <ctime>
+#include <json/json.h>
 
 namespace sylar
 {
@@ -15,11 +16,36 @@ namespace ai_gateway
 // 例如：上游回调抛异常、上游返回内容解析失败等。
 static sylar::Logger::ptr g_logger = SYLAR_LOG_NAME("system");
 
+std::string BuildTraceHeader(const sylar::http::HttpLoadBalanceRequestTrace &trace)
+{
+    Json::Value root(Json::objectValue);
+    Json::Value attempts(Json::arrayValue);
+
+    for (auto &attempt : trace.attempts)
+    {
+        Json::Value item(Json::objectValue);
+        item["endpoint"] = attempt.endpoint_key;
+        item["outcome"] = attempt.outcome;
+        item["result"] = attempt.result;
+        item["http_status"] = attempt.http_status;
+        item["reason"] = attempt.reason;
+        attempts.append(item);
+    }
+
+    root["object"] = "ai_gateway.trace";
+    root["attempts"] = attempts;
+
+    Json::StreamWriterBuilder builder;
+    builder["indentation"] = "";
+    return Json::writeString(builder, root);
+}
+
 // 构造 AI 网关 Servlet。
 // upstream_post：外部注入的上游调用函数，用来把请求转发给模型提供者。
 // m_requestSequence：本地请求序号，用来生成 chatcmpl-local-xxx 形式的响应 id。
-AiGatewayServlet::AiGatewayServlet(UpstreamPost upstream_post)
-    : Servlet("ai_gateway"), m_upstreamPost(upstream_post), m_requestSequence(0)
+AiGatewayServlet::AiGatewayServlet(UpstreamPost upstream_post, bool demo_trace_enabled)
+    : Servlet("ai_gateway"), m_upstreamPost(upstream_post), m_demoTraceEnabled(demo_trace_enabled),
+      m_requestSequence(0)
 {
 }
 
@@ -51,13 +77,18 @@ int32_t AiGatewayServlet::handle(sylar::http::HttpRequest::ptr request,
     }
 
     sylar::http::HttpResult::ptr upstream_result;
+    sylar::http::HttpLoadBalanceRequestTrace trace;
+    const bool trace_requested =
+        m_demoTraceEnabled && request->getHeader("X-Ai-Gateway-Demo-Trace") == "1";
 
     try
     {
         // 调用注入进来的上游请求函数。
         // 这里不直接写死上游地址，而是通过 m_upstreamPost 解耦：
         // 测试时可以注入 mock，上线时可以注入真实的 HTTP 负载均衡调用。
-        upstream_result = m_upstreamPost ? m_upstreamPost(request->getBody()) : nullptr;
+        upstream_result =
+            m_upstreamPost ? m_upstreamPost(request->getBody(), trace_requested ? &trace : nullptr)
+                           : nullptr;
     }
     catch (const std::exception &e)
     {
@@ -69,6 +100,11 @@ int32_t AiGatewayServlet::handle(sylar::http::HttpRequest::ptr request,
     {
         // 捕获非标准异常。
         SYLAR_LOG_ERROR(g_logger) << "ai gateway upstream callback threw";
+    }
+
+    if (trace_requested)
+    {
+        response->setHeader("X-Ai-Gateway-Trace", BuildTraceHeader(trace));
     }
 
     // 校验上游调用结果。

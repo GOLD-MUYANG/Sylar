@@ -58,9 +58,33 @@ sylar::http::HttpResult::ptr MakeSuccessResult()
         (int)sylar::http::HttpResult::Error::OK, response, "");
 }
 
+sylar::http::HttpResult::ptr MakeTracedSuccessResult(sylar::http::HttpLoadBalanceRequestTrace *trace)
+{
+    if (trace)
+    {
+        sylar::http::HttpLoadBalanceAttemptTrace first;
+        first.endpoint_key = "127.0.0.1:19003";
+        first.outcome = "failure";
+        first.result = (int)sylar::http::HttpResult::Error::CONNECT_FAIL;
+        first.reason = "connect failed";
+        trace->attempts.push_back(first);
+
+        sylar::http::HttpLoadBalanceAttemptTrace second;
+        second.endpoint_key = "127.0.0.1:19001";
+        second.outcome = "success";
+        second.result = (int)sylar::http::HttpResult::Error::OK;
+        second.http_status = 200;
+        trace->attempts.push_back(second);
+    }
+    return MakeSuccessResult();
+}
+
 void test_valid_request_maps_provider_response()
 {
-    sylar::ai_gateway::AiGatewayServlet servlet([](const std::string &) { return MakeSuccessResult(); });
+    sylar::ai_gateway::AiGatewayServlet servlet(
+        [](const std::string &, sylar::http::HttpLoadBalanceRequestTrace *) {
+            return MakeSuccessResult();
+        });
     auto request = MakeRequest(
         R"({"model":"demo-chat","messages":[{"role":"user","content":"hello"}]})");
     sylar::http::HttpResponse::ptr response(new sylar::http::HttpResponse);
@@ -78,10 +102,11 @@ void test_valid_request_maps_provider_response()
 void test_invalid_request_does_not_call_upstream()
 {
     bool called = false;
-    sylar::ai_gateway::AiGatewayServlet servlet([&called](const std::string &) {
-        called = true;
-        return MakeSuccessResult();
-    });
+    sylar::ai_gateway::AiGatewayServlet servlet(
+        [&called](const std::string &, sylar::http::HttpLoadBalanceRequestTrace *) {
+            called = true;
+            return MakeSuccessResult();
+        });
     auto request = MakeRequest(R"({"model":"demo-chat","messages":[],"stream":true})");
     sylar::http::HttpResponse::ptr response(new sylar::http::HttpResponse);
 
@@ -96,11 +121,12 @@ void test_invalid_request_does_not_call_upstream()
 
 void test_upstream_failure_hides_internal_error()
 {
-    sylar::ai_gateway::AiGatewayServlet servlet([](const std::string &) {
-        return std::make_shared<sylar::http::HttpResult>(
-            (int)sylar::http::HttpResult::Error::CONNECT_FAIL, nullptr,
-            "connect http://127.0.0.1:19001 failed");
-    });
+    sylar::ai_gateway::AiGatewayServlet servlet(
+        [](const std::string &, sylar::http::HttpLoadBalanceRequestTrace *) {
+            return std::make_shared<sylar::http::HttpResult>(
+                (int)sylar::http::HttpResult::Error::CONNECT_FAIL, nullptr,
+                "connect http://127.0.0.1:19001 failed");
+        });
     auto request = MakeRequest(
         R"({"model":"demo-chat","messages":[{"role":"user","content":"hello"}]})");
     sylar::http::HttpResponse::ptr response(new sylar::http::HttpResponse);
@@ -116,11 +142,12 @@ void test_upstream_failure_hides_internal_error()
 
 void test_rate_limited_upstream_maps_to_429()
 {
-    sylar::ai_gateway::AiGatewayServlet servlet([](const std::string &) {
-        return std::make_shared<sylar::http::HttpResult>(
-            (int)sylar::http::HttpResult::Error::RATE_LIMITED, nullptr,
-            "http client concurrency limited");
-    });
+    sylar::ai_gateway::AiGatewayServlet servlet(
+        [](const std::string &, sylar::http::HttpLoadBalanceRequestTrace *) {
+            return std::make_shared<sylar::http::HttpResult>(
+                (int)sylar::http::HttpResult::Error::RATE_LIMITED, nullptr,
+                "http client concurrency limited");
+        });
     auto request = MakeRequest(
         R"({"model":"demo-chat","messages":[{"role":"user","content":"hello"}]})");
     sylar::http::HttpResponse::ptr response(new sylar::http::HttpResponse);
@@ -134,6 +161,29 @@ void test_rate_limited_upstream_maps_to_429()
     EXPECT_EQ(root["error"]["code"].asString(), "RATE_LIMITED");
 }
 
+void test_demo_trace_header_is_exposed_when_enabled_and_requested()
+{
+    sylar::ai_gateway::AiGatewayServlet servlet(
+        [](const std::string &, sylar::http::HttpLoadBalanceRequestTrace *trace) {
+            return MakeTracedSuccessResult(trace);
+        },
+        true);
+    auto request = MakeRequest(
+        R"({"model":"demo-chat","messages":[{"role":"user","content":"hello"}]})");
+    request->setHeader("X-Ai-Gateway-Demo-Trace", "1");
+    sylar::http::HttpResponse::ptr response(new sylar::http::HttpResponse);
+
+    EXPECT_EQ(servlet.handle(request, response, nullptr), 0);
+    EXPECT_EQ(response->getStatus(), sylar::http::HttpStatus::OK);
+
+    Json::Value trace_root;
+    EXPECT_TRUE(ParseJson(response->getHeader("X-Ai-Gateway-Trace"), &trace_root));
+    EXPECT_EQ(trace_root["attempts"].size(), 2U);
+    EXPECT_EQ(trace_root["attempts"][0]["endpoint"].asString(), "127.0.0.1:19003");
+    EXPECT_EQ(trace_root["attempts"][0]["outcome"].asString(), "failure");
+    EXPECT_EQ(trace_root["attempts"][1]["outcome"].asString(), "success");
+}
+
 } // namespace
 
 int main()
@@ -142,5 +192,6 @@ int main()
     test_invalid_request_does_not_call_upstream();
     test_upstream_failure_hides_internal_error();
     test_rate_limited_upstream_maps_to_429();
+    test_demo_trace_header_is_exposed_when_enabled_and_requested();
     return g_failures == 0 ? 0 : 1;
 }

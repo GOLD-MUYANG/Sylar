@@ -805,6 +805,75 @@ void test_circuit_breaker_failover_to_next_endpoint()
     expect_ok_body(client->get("/ok", 1000), "available");
 }
 
+void test_request_trace_records_failed_then_successful_endpoint()
+{
+    NamedHttpServer available("trace-ok");
+    usleep(50 * 1000);
+
+    std::vector<sylar::http::HttpEndpoint::ptr> endpoints;
+    endpoints.push_back(create_endpoint(1));
+    endpoints.push_back(create_endpoint(available.getPort()));
+
+    sylar::http::HttpRetryOptions retry_options;
+    retry_options.retry_non_idempotent = true;
+    retry_options.max_total_attempts = 2;
+
+    sylar::http::HttpLoadBalanceRequestTrace trace;
+    auto client = sylar::http::HttpLoadBalanceClient::Create(
+        endpoints, sylar::http::HttpLoadBalanceStrategy::ROUND_ROBIN);
+
+    EXPECT_TRUE(client != nullptr);
+    if (!client)
+    {
+        return;
+    }
+
+    auto result = client->post("/ok", sylar::http::HttpRequestOptions::FromTimeout(500),
+                               retry_options, {}, "", &trace);
+
+    expect_ok_body(result, "trace-ok");
+    EXPECT_EQ(trace.attempts.size(), 2UL);
+    EXPECT_EQ(trace.attempts[0].endpoint_key, "127.0.0.1:1");
+    EXPECT_EQ(trace.attempts[0].outcome, "failure");
+    EXPECT_EQ(trace.attempts[1].endpoint_key,
+              "127.0.0.1:" + std::to_string(available.getPort()));
+    EXPECT_EQ(trace.attempts[1].outcome, "success");
+}
+
+void test_request_trace_records_down_endpoint_skip()
+{
+    NamedHttpServer available("trace-skip-ok");
+    usleep(50 * 1000);
+
+    auto down =
+        sylar::http::HttpEndpoint::Create("127.0.0.1", 19003, false, 1,
+                                          sylar::http::HttpEndpointStatus::DOWN, "", 2, 30000, 10);
+
+    std::vector<sylar::http::HttpEndpoint::ptr> endpoints;
+    endpoints.push_back(down);
+    endpoints.push_back(create_endpoint(available.getPort()));
+
+    sylar::http::HttpLoadBalanceRequestTrace trace;
+    auto client = sylar::http::HttpLoadBalanceClient::Create(
+        endpoints, sylar::http::HttpLoadBalanceStrategy::ROUND_ROBIN);
+
+    EXPECT_TRUE(client != nullptr);
+    if (!client)
+    {
+        return;
+    }
+
+    auto result = client->request(sylar::http::HttpMethod::GET, "/ok",
+                                  sylar::http::HttpRequestOptions::FromTimeout(500),
+                                  sylar::http::HttpRetryOptions(), {}, "", &trace);
+
+    expect_ok_body(result, "trace-skip-ok");
+    EXPECT_EQ(trace.attempts.size(), 2UL);
+    EXPECT_EQ(trace.attempts[0].endpoint_key, "127.0.0.1:19003");
+    EXPECT_EQ(trace.attempts[0].outcome, "skipped_down");
+    EXPECT_EQ(trace.attempts[1].outcome, "success");
+}
+
 /**
  * @brief 依次运行所有测试用例。
  */
@@ -821,6 +890,8 @@ void run_tests()
     test_endpoint_qps_limit_rejects_fast_second_request();
     test_circuit_breaker_rejects_open_endpoint();
     test_circuit_breaker_failover_to_next_endpoint();
+    test_request_trace_records_failed_then_successful_endpoint();
+    test_request_trace_records_down_endpoint_skip();
 
     SYLAR_LOG_INFO(g_logger) << "run_tests over";
 }

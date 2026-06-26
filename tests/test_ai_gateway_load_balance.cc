@@ -204,12 +204,14 @@ sylar::http::HttpLoadBalanceClient::ptr MakeClient(MockProviderServer &first,
 std::shared_ptr<sylar::ai_gateway::AiGatewayServlet>
 MakeServlet(sylar::http::HttpLoadBalanceClient::ptr client)
 {
-    return std::make_shared<sylar::ai_gateway::AiGatewayServlet>([client](const std::string &body) {
-        sylar::http::HttpRetryOptions retry_options;
-        retry_options.retry_non_idempotent = true;
-        return client->post("/v1/chat/completions", sylar::http::HttpRequestOptions::FromTimeout(500),
-                            retry_options, {{"Content-Type", "application/json"}}, body);
-    });
+    return std::make_shared<sylar::ai_gateway::AiGatewayServlet>(
+        [client](const std::string &body, sylar::http::HttpLoadBalanceRequestTrace *trace) {
+            sylar::http::HttpRetryOptions retry_options;
+            retry_options.retry_non_idempotent = true;
+            return client->post("/v1/chat/completions",
+                                sylar::http::HttpRequestOptions::FromTimeout(500), retry_options,
+                                {{"Content-Type", "application/json"}}, body, trace);
+        });
 }
 
 void test_round_robin_maps_two_providers()
@@ -356,13 +358,13 @@ void test_max_total_attempts_stops_before_next_provider()
     }
 
     auto servlet = std::make_shared<sylar::ai_gateway::AiGatewayServlet>(
-        [client](const std::string &body) {
+        [client](const std::string &body, sylar::http::HttpLoadBalanceRequestTrace *trace) {
             sylar::http::HttpRetryOptions retry_options;
             retry_options.retry_non_idempotent = true;
             retry_options.max_total_attempts = 1;
             return client->post("/v1/chat/completions",
                                 sylar::http::HttpRequestOptions::FromTimeout(500), retry_options,
-                                {{"Content-Type", "application/json"}}, body);
+                                {{"Content-Type", "application/json"}}, body, trace);
         });
 
     sylar::http::HttpResponse::ptr response(new sylar::http::HttpResponse);

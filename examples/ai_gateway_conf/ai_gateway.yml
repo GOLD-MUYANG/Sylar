@@ -4,6 +4,7 @@ ai_gateway:
   request_timeout_ms: 800
   request_deadline_ms: 800
   max_total_attempts: 3
+  demo_trace_enabled: true
   load_balance: ROUND_ROBIN
   limiter:
     max_global_concurrency: 32
@@ -19,10 +20,13 @@ ai_gateway:
     open_timeout_ms: 5000
     half_open_max_requests: 1
   health_check:
-    enabled: false
-    path: /
+    enabled: true
+    path: /health
     timeout_ms: 500
   providers:
+    - name: mock-c
+      url: http://127.0.0.1:19003
+      weight: 1
     - name: mock-a
       url: http://127.0.0.1:19001
       weight: 1
