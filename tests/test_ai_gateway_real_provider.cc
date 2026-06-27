@@ -105,6 +105,56 @@ sylar::http::HttpResult::ptr OpenAICompatibleOkResult()
         (int)sylar::http::HttpResult::Error::OK, response, "ok");
 }
 
+sylar::http::HttpResult::ptr ProviderStatusError(sylar::http::HttpStatus status,
+                                                 const std::string &body = "")
+{
+    sylar::http::HttpResponse::ptr response(new sylar::http::HttpResponse);
+    response->setStatus(status);
+    response->setBody(body.empty() ? "{\"error\":\"provider raw error\"}" : body);
+
+    sylar::http::HttpResult::ptr result = std::make_shared<sylar::http::HttpResult>(
+        (int)sylar::http::HttpResult::Error::HTTP_STATUS_ERROR, response, "provider status error");
+    result->attempt.phase = sylar::http::HttpAttemptPhase::RESPONSE_RECEIVED;
+    result->attempt.response_started = true;
+    result->attempt.response_completed = true;
+    result->attempt.http_status = (int)status;
+    return result;
+}
+
+sylar::http::HttpResult::ptr ProviderUnknownSubmittedResult()
+{
+    sylar::http::HttpResult::ptr result = std::make_shared<sylar::http::HttpResult>(
+        (int)sylar::http::HttpResult::Error::RECV_TIMEOUT, nullptr, "read timeout after send");
+    result->attempt.phase = sylar::http::HttpAttemptPhase::RESPONSE_TIMEOUT_AFTER_SEND;
+    result->attempt.request_bytes_started = true;
+    result->attempt.request_bytes_completed = true;
+    result->attempt.may_have_submitted = true;
+    result->attempt.detail = "read timeout after request body sent";
+    return result;
+}
+
+sylar::http::HttpResult::ptr ProviderSendFailedBeforeBodyResult()
+{
+    sylar::http::HttpResult::ptr result = std::make_shared<sylar::http::HttpResult>(
+        (int)sylar::http::HttpResult::Error::SEND_FAIL, nullptr, "send failed before body");
+    result->attempt.phase = sylar::http::HttpAttemptPhase::SEND_FAILED_BEFORE_BODY;
+    result->attempt.may_have_submitted = false;
+    result->attempt.detail = "send failed before request body";
+    return result;
+}
+
+sylar::http::HttpResult::ptr ProviderPartialWriteResult()
+{
+    sylar::http::HttpResult::ptr result = std::make_shared<sylar::http::HttpResult>(
+        (int)sylar::http::HttpResult::Error::SEND_FAIL, nullptr, "partial write");
+    result->attempt.phase = sylar::http::HttpAttemptPhase::PARTIAL_WRITE_OR_UNKNOWN;
+    result->attempt.request_bytes_started = true;
+    result->attempt.request_bytes_sent = 16;
+    result->attempt.may_have_submitted = true;
+    result->attempt.detail = "partial request write";
+    return result;
+}
+
 void test_gateway_protocol_names_are_available()
 {
     sylar::ai_gateway::GatewayChatRequest request;
@@ -355,6 +405,217 @@ void test_openai_adapter_applies_remaining_budget_to_http_options()
     unsetenv("SYLAR_TEST_PROVIDER_KEY");
 }
 
+void test_provider_status_classification_controls_failover()
+{
+    sylar::ai_gateway::LogicalModelRouter router;
+    std::string error;
+    EXPECT_TRUE(router.addCandidate(
+        MakeCandidate("provider-a", "general-chat", "https://api-a.example",
+                      "/v1/chat/completions", "upstream-a", "PROVIDER_A_KEY"),
+        &error));
+    EXPECT_TRUE(router.addCandidate(
+        MakeCandidate("provider-b", "general-chat", "https://api-b.example",
+                      "/v1/chat/completions", "upstream-b", "PROVIDER_B_KEY"),
+        &error));
+
+    sylar::ai_gateway::GatewayChatRequest request;
+    request.model = "general-chat";
+    request.messages.push_back({"user", "hello"});
+
+    int bad_request_calls = 0;
+    sylar::ai_gateway::ProviderAttemptExecutor bad_request_executor(
+        router,
+        [&bad_request_calls](const sylar::ai_gateway::ProviderCandidate &,
+                             const sylar::ai_gateway::GatewayChatRequest &,
+                             sylar::ai_gateway::RequestExecutionBudget *) {
+            ++bad_request_calls;
+            return ProviderStatusError(sylar::http::HttpStatus::BAD_REQUEST);
+        });
+    auto bad_request_result = bad_request_executor.execute(request);
+    EXPECT_TRUE(bad_request_result != nullptr);
+    EXPECT_EQ(bad_request_calls, 1);
+
+    int rate_limited_calls = 0;
+    sylar::ai_gateway::ProviderAttemptExecutor rate_limited_executor(
+        router,
+        [&rate_limited_calls](const sylar::ai_gateway::ProviderCandidate &,
+                              const sylar::ai_gateway::GatewayChatRequest &,
+                              sylar::ai_gateway::RequestExecutionBudget *) {
+            ++rate_limited_calls;
+            if (rate_limited_calls == 1)
+            {
+                return ProviderStatusError(sylar::http::HttpStatus::TOO_MANY_REQUESTS);
+            }
+            return OkResult();
+        });
+    auto rate_limited_result = rate_limited_executor.execute(request);
+    EXPECT_TRUE(rate_limited_result != nullptr);
+    EXPECT_EQ(rate_limited_result->result, (int)sylar::http::HttpResult::Error::OK);
+    EXPECT_EQ(rate_limited_calls, 2);
+
+    int server_error_calls = 0;
+    sylar::ai_gateway::ProviderAttemptExecutor server_error_executor(
+        router,
+        [&server_error_calls](const sylar::ai_gateway::ProviderCandidate &,
+                              const sylar::ai_gateway::GatewayChatRequest &,
+                              sylar::ai_gateway::RequestExecutionBudget *) {
+            ++server_error_calls;
+            if (server_error_calls == 1)
+            {
+                return ProviderStatusError(sylar::http::HttpStatus::INTERNAL_SERVER_ERROR);
+            }
+            return OkResult();
+        });
+    auto server_error_result = server_error_executor.execute(request);
+    EXPECT_TRUE(server_error_result != nullptr);
+    EXPECT_EQ(server_error_result->result, (int)sylar::http::HttpResult::Error::OK);
+    EXPECT_EQ(server_error_calls, 2);
+}
+
+void test_unknown_submitted_result_stops_provider_failover()
+{
+    sylar::ai_gateway::LogicalModelRouter router;
+    std::string error;
+    EXPECT_TRUE(router.addCandidate(
+        MakeCandidate("provider-a", "general-chat", "https://api-a.example",
+                      "/v1/chat/completions", "upstream-a", "PROVIDER_A_KEY"),
+        &error));
+    EXPECT_TRUE(router.addCandidate(
+        MakeCandidate("provider-b", "general-chat", "https://api-b.example",
+                      "/v1/chat/completions", "upstream-b", "PROVIDER_B_KEY"),
+        &error));
+
+    int call_count = 0;
+    sylar::ai_gateway::ProviderAttemptExecutor executor(
+        router,
+        [&call_count](const sylar::ai_gateway::ProviderCandidate &,
+                      const sylar::ai_gateway::GatewayChatRequest &,
+                      sylar::ai_gateway::RequestExecutionBudget *) {
+            ++call_count;
+            return ProviderUnknownSubmittedResult();
+        });
+
+    sylar::ai_gateway::GatewayChatRequest request;
+    request.model = "general-chat";
+    request.messages.push_back({"user", "hello"});
+
+    auto result = executor.execute(request);
+    EXPECT_TRUE(result != nullptr);
+    EXPECT_EQ(call_count, 1);
+    EXPECT_EQ((int)result->attempt.phase,
+              (int)sylar::http::HttpAttemptPhase::RESPONSE_TIMEOUT_AFTER_SEND);
+    EXPECT_TRUE(result->attempt.may_have_submitted);
+}
+
+void test_provider_error_classification_covers_r4_matrix()
+{
+    auto bad_request =
+        sylar::ai_gateway::ClassifyProviderAttemptResult(
+            ProviderStatusError(sylar::http::HttpStatus::BAD_REQUEST));
+    EXPECT_EQ((int)bad_request.category,
+              (int)sylar::ai_gateway::ProviderErrorCategory::CALLER_OR_MODEL_REJECTED);
+    EXPECT_TRUE(!bad_request.try_next_candidate);
+
+    auto unauthorized =
+        sylar::ai_gateway::ClassifyProviderAttemptResult(
+            ProviderStatusError(sylar::http::HttpStatus::UNAUTHORIZED));
+    EXPECT_EQ((int)unauthorized.category,
+              (int)sylar::ai_gateway::ProviderErrorCategory::AUTHORIZATION_FAILED);
+    EXPECT_TRUE(!unauthorized.try_next_candidate);
+
+    auto forbidden =
+        sylar::ai_gateway::ClassifyProviderAttemptResult(
+            ProviderStatusError(sylar::http::HttpStatus::FORBIDDEN));
+    EXPECT_EQ((int)forbidden.category,
+              (int)sylar::ai_gateway::ProviderErrorCategory::AUTHORIZATION_FAILED);
+    EXPECT_TRUE(!forbidden.try_next_candidate);
+
+    auto not_found =
+        sylar::ai_gateway::ClassifyProviderAttemptResult(
+            ProviderStatusError(sylar::http::HttpStatus::NOT_FOUND));
+    EXPECT_EQ((int)not_found.category,
+              (int)sylar::ai_gateway::ProviderErrorCategory::CALLER_OR_MODEL_REJECTED);
+    EXPECT_TRUE(!not_found.try_next_candidate);
+
+    auto unprocessable =
+        sylar::ai_gateway::ClassifyProviderAttemptResult(
+            ProviderStatusError(sylar::http::HttpStatus::UNPROCESSABLE_ENTITY));
+    EXPECT_EQ((int)unprocessable.category,
+              (int)sylar::ai_gateway::ProviderErrorCategory::CALLER_OR_MODEL_REJECTED);
+    EXPECT_TRUE(!unprocessable.try_next_candidate);
+
+    auto rate_limited =
+        sylar::ai_gateway::ClassifyProviderAttemptResult(
+            ProviderStatusError(sylar::http::HttpStatus::TOO_MANY_REQUESTS));
+    EXPECT_EQ((int)rate_limited.category,
+              (int)sylar::ai_gateway::ProviderErrorCategory::RATE_LIMITED);
+    EXPECT_TRUE(rate_limited.try_next_candidate);
+    EXPECT_TRUE(!rate_limited.breaker_failure);
+
+    auto server_error =
+        sylar::ai_gateway::ClassifyProviderAttemptResult(
+            ProviderStatusError(sylar::http::HttpStatus::SERVICE_UNAVAILABLE));
+    EXPECT_EQ((int)server_error.category,
+              (int)sylar::ai_gateway::ProviderErrorCategory::RETRYABLE_UPSTREAM);
+    EXPECT_TRUE(server_error.try_next_candidate);
+    EXPECT_TRUE(server_error.breaker_failure);
+
+    auto pre_send =
+        sylar::ai_gateway::ClassifyProviderAttemptResult(ProviderSendFailedBeforeBodyResult());
+    EXPECT_EQ((int)pre_send.category,
+              (int)sylar::ai_gateway::ProviderErrorCategory::RETRYABLE_TRANSPORT);
+    EXPECT_TRUE(pre_send.try_next_candidate);
+
+    auto partial = sylar::ai_gateway::ClassifyProviderAttemptResult(ProviderPartialWriteResult());
+    EXPECT_EQ((int)partial.category,
+              (int)sylar::ai_gateway::ProviderErrorCategory::RESULT_UNKNOWN);
+    EXPECT_TRUE(!partial.try_next_candidate);
+
+    auto read_timeout =
+        sylar::ai_gateway::ClassifyProviderAttemptResult(ProviderUnknownSubmittedResult());
+    EXPECT_EQ((int)read_timeout.category,
+              (int)sylar::ai_gateway::ProviderErrorCategory::RESULT_UNKNOWN);
+    EXPECT_TRUE(!read_timeout.try_next_candidate);
+}
+
+void test_openai_adapter_returns_sanitized_provider_errors()
+{
+    setenv("SYLAR_TEST_PROVIDER_KEY", "sk-r4-secret", 1);
+
+    sylar::ai_gateway::LogicalModelRouter router;
+    std::string error;
+    EXPECT_TRUE(router.addCandidate(
+        MakeCandidate("provider-a", "general-chat", "https://api-a.example",
+                      "/v1/chat/completions", "upstream-a", "SYLAR_TEST_PROVIDER_KEY"),
+        &error));
+
+    auto handler = sylar::ai_gateway::CreateOpenAICompatibleAttemptHandler(
+        [](const sylar::ai_gateway::ProviderCandidate &,
+           const sylar::ai_gateway::ProviderHttpRequest &) {
+            return ProviderStatusError(sylar::http::HttpStatus::UNAUTHORIZED,
+                                       "{\"message\":\"bad key sk-r4-secret hello from user\"}");
+        });
+
+    sylar::ai_gateway::GatewayChatRequest request;
+    request.model = "general-chat";
+    request.messages.push_back({"user", "hello from user"});
+
+    sylar::ai_gateway::ProviderAttemptExecutor executor(router, handler);
+    auto result = executor.execute(request);
+    EXPECT_TRUE(result != nullptr);
+    EXPECT_EQ(result->result, (int)sylar::http::HttpResult::Error::HTTP_STATUS_ERROR);
+    EXPECT_TRUE(result->response != nullptr);
+    EXPECT_EQ((int)result->response->getStatus(), (int)sylar::http::HttpStatus::BAD_GATEWAY);
+    EXPECT_EQ(result->attempt.http_status, (int)sylar::http::HttpStatus::UNAUTHORIZED);
+
+    Json::Value body = ParseJson(result->response->getBody());
+    EXPECT_EQ(body["error"]["code"].asString(), "PROVIDER_AUTH_FAILED");
+    EXPECT_EQ(result->response->getBody().find("sk-r4-secret"), std::string::npos);
+    EXPECT_EQ(result->response->getBody().find("hello from user"), std::string::npos);
+
+    unsetenv("SYLAR_TEST_PROVIDER_KEY");
+}
+
 } // namespace
 
 int main()
@@ -366,5 +627,9 @@ int main()
     test_openai_adapter_sanitizes_parse_error();
     test_request_execution_budget_limits_provider_failover_attempts();
     test_openai_adapter_applies_remaining_budget_to_http_options();
+    test_provider_status_classification_controls_failover();
+    test_unknown_submitted_result_stops_provider_failover();
+    test_provider_error_classification_covers_r4_matrix();
+    test_openai_adapter_returns_sanitized_provider_errors();
     return g_failures == 0 ? 0 : 1;
 }

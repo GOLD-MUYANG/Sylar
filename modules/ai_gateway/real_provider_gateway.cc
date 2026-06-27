@@ -1,5 +1,6 @@
 #include "real_provider_gateway.h"
 
+#include "ai_gateway_protocol.h"
 #include "sylar/util.h"
 
 namespace sylar
@@ -52,8 +53,197 @@ sylar::http::HttpResult::ptr MakeBudgetExhaustedError(RequestExecutionBudget *bu
                               : "request execution attempts exhausted";
     return MakeExecutorError(error, message);
 }
+// 从 HttpResult 中提取 Provider 实际返回的 HTTP 状态码。
+int GetProviderHttpStatus(const sylar::http::HttpResult::ptr &result)
+{
+    if (!result)
+    {
+        return 0;
+    }
+    if (result->attempt.http_status > 0)
+    {
+        return result->attempt.http_status;
+    }
+    if (result->response)
+    {
+        return (int)result->response->getStatus();
+    }
+    return 0;
+}
+
+bool IsProvider5xx(int status)
+{
+    return status >= 500 && status <= 599;
+}
+
+bool IsProviderRequestOrModel4xx(int status)
+{
+    return status == (int)sylar::http::HttpStatus::BAD_REQUEST ||
+           status == (int)sylar::http::HttpStatus::NOT_FOUND ||
+           status == (int)sylar::http::HttpStatus::UNPROCESSABLE_ENTITY;
+}
+
+bool IsKnownNotSubmitted(const sylar::http::HttpAttemptOutcome &attempt)
+{
+    return !attempt.may_have_submitted &&
+           (attempt.phase == sylar::http::HttpAttemptPhase::NOT_SENT ||
+            attempt.phase == sylar::http::HttpAttemptPhase::SEND_FAILED_BEFORE_BODY);
+}
 
 } // namespace
+
+// 对一次 Provider 调用结果进行错误归类，并生成后续处理决策。
+//
+// 这个函数的目标不是直接构造响应，而是回答三个问题：
+// 1. 本次错误属于哪一类？
+// 2. 是否应该尝试下一个 ProviderCandidate？
+// 3. 是否应该计入熔断失败？
+//
+// 分类结果会被 BuildProviderGatewayErrorResult 和路由/熔断逻辑复用。
+ProviderErrorDecision ClassifyProviderAttemptResult(const sylar::http::HttpResult::ptr &result)
+{
+    ProviderErrorDecision decision;
+    if (!result)
+    {
+        decision.category = ProviderErrorCategory::RETRYABLE_TRANSPORT;
+        decision.try_next_candidate = true;
+        decision.breaker_failure = true;
+        decision.error_type = "server_error";
+        decision.error_code = "UPSTREAM_UNAVAILABLE";
+        decision.message = "上游 Provider 调用没有返回结果";
+        return decision;
+    }
+
+    if (result->result == (int)sylar::http::HttpResult::Error::OK)
+    {
+        decision.category = ProviderErrorCategory::NONE;
+        decision.gateway_status = sylar::http::HttpStatus::OK;
+        return decision;
+    }
+
+    if (result->attempt.may_have_submitted &&
+        result->attempt.phase != sylar::http::HttpAttemptPhase::RESPONSE_RECEIVED)
+    {
+        decision.category = ProviderErrorCategory::RESULT_UNKNOWN;
+        decision.breaker_failure = true;
+        decision.gateway_status = sylar::http::HttpStatus::GATEWAY_TIMEOUT;
+        decision.error_type = "timeout_error";
+        decision.error_code = "PROVIDER_RESULT_UNKNOWN";
+        decision.message = "上游请求可能已提交，结果未知";
+        return decision;
+    }
+
+    const int status = GetProviderHttpStatus(result);
+    if (result->result == (int)sylar::http::HttpResult::Error::HTTP_STATUS_ERROR && status > 0)
+    {
+        if (status == (int)sylar::http::HttpStatus::UNAUTHORIZED ||
+            status == (int)sylar::http::HttpStatus::FORBIDDEN)
+        {
+            decision.category = ProviderErrorCategory::AUTHORIZATION_FAILED;
+            decision.gateway_status = sylar::http::HttpStatus::BAD_GATEWAY;
+            decision.error_type = "authentication_error";
+            decision.error_code = "PROVIDER_AUTH_FAILED";
+            decision.message = "上游 Provider 认证或权限校验失败";
+            return decision;
+        }
+
+        if (status == (int)sylar::http::HttpStatus::TOO_MANY_REQUESTS)
+        {
+            decision.category = ProviderErrorCategory::RATE_LIMITED;
+            decision.try_next_candidate = true;
+            decision.gateway_status = sylar::http::HttpStatus::TOO_MANY_REQUESTS;
+            decision.error_type = "rate_limit_error";
+            decision.error_code = "PROVIDER_RATE_LIMITED";
+            decision.message = "上游 Provider 当前限流";
+            return decision;
+        }
+
+        if (IsProviderRequestOrModel4xx(status) || (status >= 400 && status <= 499))
+        {
+            decision.category = ProviderErrorCategory::CALLER_OR_MODEL_REJECTED;
+            decision.gateway_status = sylar::http::HttpStatus::BAD_GATEWAY;
+            decision.error_type = "invalid_request_error";
+            decision.error_code = "PROVIDER_REQUEST_REJECTED";
+            decision.message = "上游 Provider 拒绝了请求或模型映射";
+            return decision;
+        }
+
+        if (IsProvider5xx(status))
+        {
+            decision.category = ProviderErrorCategory::RETRYABLE_UPSTREAM;
+            decision.try_next_candidate = true;
+            decision.breaker_failure = true;
+            decision.gateway_status = sylar::http::HttpStatus::BAD_GATEWAY;
+            decision.error_type = "server_error";
+            decision.error_code = "UPSTREAM_UNAVAILABLE";
+            decision.message = "上游 Provider 暂时不可用";
+            return decision;
+        }
+    }
+
+    if (result->result == (int)sylar::http::HttpResult::Error::RESPONSE_PARSE_FAIL)
+    {
+        decision.category = ProviderErrorCategory::RESPONSE_CONTRACT_INVALID;
+        decision.try_next_candidate = true;
+        decision.breaker_failure = true;
+        decision.gateway_status = sylar::http::HttpStatus::BAD_GATEWAY;
+        decision.error_type = "server_error";
+        decision.error_code = "PROVIDER_RESPONSE_INVALID";
+        decision.message = "上游 Provider 返回了无效响应";
+        return decision;
+    }
+
+    if (IsKnownNotSubmitted(result->attempt))
+    {
+        decision.category = ProviderErrorCategory::RETRYABLE_TRANSPORT;
+        decision.try_next_candidate = true;
+        decision.breaker_failure = true;
+        decision.gateway_status = sylar::http::HttpStatus::BAD_GATEWAY;
+        decision.error_type = "server_error";
+        decision.error_code = "UPSTREAM_UNAVAILABLE";
+        decision.message = "上游 Provider 当前不可用";
+        return decision;
+    }
+
+    decision.category = ProviderErrorCategory::UNKNOWN;
+    decision.breaker_failure = true;
+    decision.gateway_status = sylar::http::HttpStatus::BAD_GATEWAY;
+    decision.error_type = "server_error";
+    decision.error_code = "UPSTREAM_UNAVAILABLE";
+    decision.message = "上游 Provider 调用失败";
+    return decision;
+}
+// 把 Provider 调用失败结果转换成网关对外返回的 HttpResult。
+sylar::http::HttpResult::ptr
+BuildProviderGatewayErrorResult(const sylar::http::HttpResult::ptr &provider_result)
+{
+    ProviderErrorDecision decision = ClassifyProviderAttemptResult(provider_result);
+    if (decision.category == ProviderErrorCategory::NONE)
+    {
+        return provider_result;
+    }
+
+    sylar::http::HttpResponse::ptr response(new sylar::http::HttpResponse);
+    response->setStatus(decision.gateway_status);
+    response->setHeader("Content-Type", "application/json");
+    response->setBody(
+        BuildErrorResponse(decision.message, decision.error_type, decision.error_code));
+
+    sylar::http::HttpResult::ptr result = std::make_shared<sylar::http::HttpResult>(
+        provider_result ? provider_result->result
+                        : (int)sylar::http::HttpResult::Error::CONNECT_FAIL,
+        response, decision.message);
+    if (provider_result)
+    {
+        result->attempt = provider_result->attempt;
+        if (result->attempt.http_status == 0 && provider_result->response)
+        {
+            result->attempt.http_status = (int)provider_result->response->getStatus();
+        }
+    }
+    result->attempt.detail = decision.error_code;
+    return result;
+}
 
 RequestExecutionBudget::RequestExecutionBudget(uint64_t deadline_ms,
                                                uint32_t max_total_attempts,
@@ -250,34 +440,7 @@ sylar::http::HttpResult::ptr ProviderAttemptExecutor::execute(const GatewayChatR
 
 bool ProviderAttemptExecutor::shouldTryNextCandidate(const sylar::http::HttpResult::ptr &result)
 {
-    if (!result)
-    {
-        return true;
-    }
-
-    if (result->result == (int)sylar::http::HttpResult::Error::OK)
-    {
-        return false;
-    }
-
-    if (result->attempt.may_have_submitted &&
-        result->attempt.phase != sylar::http::HttpAttemptPhase::RESPONSE_RECEIVED)
-    {
-        return false;
-    }
-
-    if (result->result == (int)sylar::http::HttpResult::Error::HTTP_STATUS_ERROR &&
-        result->response)
-    {
-        auto status = result->response->getStatus();
-        return status == sylar::http::HttpStatus::INTERNAL_SERVER_ERROR ||
-               status == sylar::http::HttpStatus::BAD_GATEWAY ||
-               status == sylar::http::HttpStatus::SERVICE_UNAVAILABLE ||
-               status == sylar::http::HttpStatus::GATEWAY_TIMEOUT;
-    }
-
-    return result->attempt.phase == sylar::http::HttpAttemptPhase::NOT_SENT ||
-           result->attempt.phase == sylar::http::HttpAttemptPhase::SEND_FAILED_BEFORE_BODY;
+    return ClassifyProviderAttemptResult(result).try_next_candidate;
 }
 
 } // namespace ai_gateway

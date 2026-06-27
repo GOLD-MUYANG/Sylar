@@ -240,17 +240,20 @@ ProviderAttemptExecutor::BudgetedAttemptHandler CreateOpenAICompatibleAttemptHan
         sylar::http::HttpResult::ptr provider_result = post(candidate, http_request);
         if (!provider_result)
         {
-            return MakeAdapterError(sylar::http::HttpResult::Error::CONNECT_FAIL,
-                                    "provider HTTP result missing");
+            return BuildProviderGatewayErrorResult(MakeAdapterError(
+                sylar::http::HttpResult::Error::CONNECT_FAIL, "provider HTTP result missing"));
         }
         if (provider_result->result != (int)sylar::http::HttpResult::Error::OK)
         {
-            return provider_result;
+            return BuildProviderGatewayErrorResult(provider_result);
         }
         if (!provider_result->response)
         {
-            return MakeAdapterError(sylar::http::HttpResult::Error::RESPONSE_PARSE_FAIL,
-                                    "provider HTTP response missing");
+            sylar::http::HttpResult::ptr result = MakeAdapterError(
+                sylar::http::HttpResult::Error::RESPONSE_PARSE_FAIL,
+                "provider HTTP response missing");
+            result->attempt = provider_result->attempt;
+            return BuildProviderGatewayErrorResult(result);
         }
 
         GatewayChatResponse chat_response;
@@ -261,7 +264,7 @@ ProviderAttemptExecutor::BudgetedAttemptHandler CreateOpenAICompatibleAttemptHan
                 sylar::http::HttpResult::Error::RESPONSE_PARSE_FAIL, error);
             result->attempt = provider_result->attempt;
             result->attempt.detail = error;
-            return result;
+            return BuildProviderGatewayErrorResult(result);
         }
 
         sylar::http::HttpResponse::ptr response(new sylar::http::HttpResponse);

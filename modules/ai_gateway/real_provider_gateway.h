@@ -23,6 +23,61 @@ enum class ProviderAdapterType
 };
 
 const char *ProviderAdapterTypeToString(ProviderAdapterType type);
+// Provider 单次调用失败/异常结果的归类。
+// 这个分类用于把不同来源的错误统一成网关内部决策：
+enum class ProviderErrorCategory
+{
+    NONE = 0,
+    // 调用方请求或模型选择被 Provider 拒绝。
+    // 典型情况：请求参数非法、模型不存在、上下文超限、内容被拒绝等。
+    CALLER_OR_MODEL_REJECTED = 1,
+    // 鉴权失败。
+    // 典型情况：API Key 缺失、无效、权限不足。
+    AUTHORIZATION_FAILED = 2,
+    // Provider 限流。
+    // 典型情况：HTTP 429、额度/频率限制。
+    RATE_LIMITED = 3,
+    // Provider 侧可重试错误。
+    // 典型情况：Provider 返回 5xx、临时不可用、上游超时等。
+    RETRYABLE_UPSTREAM = 4,
+
+    // 传输层可重试错误。
+    // 典型情况：连接失败、DNS 失败、TLS 失败、读写超时、连接被重置等。
+    RETRYABLE_TRANSPORT = 5,
+    // 调用结果状态未知。
+    // 典型情况：请求可能已经发出，但没有可靠拿到 Provider 响应。
+    RESULT_UNKNOWN = 6,
+    // Provider 响应不符合网关期望的协议契约。
+    // 典型情况：HTTP 成功但 JSON 无法解析、缺少 choices、字段类型错误等。
+    RESPONSE_CONTRACT_INVALID = 7,
+
+    // 网关侧配置错误。
+    // 典型情况：base_url 为空、chat_path 非法、模型路由配置错误、API Key 环境变量未配置等。
+    CONFIGURATION_ERROR = 8,
+    UNKNOWN = 9,
+};
+
+// Provider 单次调用结果经过分类后的决策信息。
+// 它不是单纯的错误描述，而是网关后续调度、熔断和响应生成的依据。
+struct ProviderErrorDecision
+{
+    ProviderErrorCategory category = ProviderErrorCategory::NONE;
+    bool try_next_candidate = false;
+    // 是否把本次失败计入熔断器失败统计。
+    // 一般传输错误、Provider 5xx、响应契约错误会计入；
+    // 调用方参数错误、鉴权失败、模型不存在通常不应计入服务健康失败。
+    bool breaker_failure = false;
+    // 网关最终返回给客户端的 HTTP 状态码。
+    sylar::http::HttpStatus gateway_status = sylar::http::HttpStatus::BAD_GATEWAY;
+    std::string error_type;
+    std::string error_code;
+    std::string message;
+};
+// 根据一次 Provider 调用结果生成统一的错误决策。
+ProviderErrorDecision ClassifyProviderAttemptResult(const sylar::http::HttpResult::ptr &result);
+// 把 Provider 调用失败结果转换成网关对外返回的 HttpResult。
+sylar::http::HttpResult::ptr
+BuildProviderGatewayErrorResult(const sylar::http::HttpResult::ptr &provider_result);
 
 // 一个可被路由选择的真实 Provider 候选项。
 // 它表示：某个逻辑模型 logical_model 可以落到某个真实上游 provider。
