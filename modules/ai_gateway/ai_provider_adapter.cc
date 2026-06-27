@@ -2,6 +2,7 @@
 
 #include <json/json.h>
 
+#include <algorithm>
 #include <cstdlib>
 #include <ctime>
 #include <memory>
@@ -84,6 +85,37 @@ const char *GetEnvValue(const std::string &name)
         return nullptr;
     }
     return value;
+}
+
+uint64_t LimitTimeoutByBudget(uint64_t timeout_ms, uint64_t remaining_ms)
+{
+    if (remaining_ms == (uint64_t)-1)
+    {
+        return timeout_ms;
+    }
+    if (timeout_ms == (uint64_t)-1)
+    {
+        return remaining_ms;
+    }
+    return std::min(timeout_ms, remaining_ms);
+}
+
+sylar::http::HttpRequestOptions
+ApplyBudgetToOptions(const sylar::http::HttpRequestOptions &options,
+                     RequestExecutionBudget *budget)
+{
+    if (!budget)
+    {
+        return options;
+    }
+
+    uint64_t remaining_ms = budget->remainingMs();
+    sylar::http::HttpRequestOptions limited = options;
+    limited.connect_timeout_ms = LimitTimeoutByBudget(limited.connect_timeout_ms, remaining_ms);
+    limited.send_timeout_ms = LimitTimeoutByBudget(limited.send_timeout_ms, remaining_ms);
+    limited.recv_timeout_ms = LimitTimeoutByBudget(limited.recv_timeout_ms, remaining_ms);
+    limited.total_timeout_ms = LimitTimeoutByBudget(limited.total_timeout_ms, remaining_ms);
+    return limited;
 }
 
 } // namespace
@@ -170,12 +202,13 @@ bool OpenAICompatibleProviderAdapter::parseChatResponse(const ProviderCandidate 
     return true;
 }
 
-ProviderAttemptExecutor::AttemptHandler CreateOpenAICompatibleAttemptHandler(
+ProviderAttemptExecutor::BudgetedAttemptHandler CreateOpenAICompatibleAttemptHandler(
     const ProviderHttpPost &post,
     const sylar::http::HttpRequestOptions &options)
 {
     return [post, options](const ProviderCandidate &candidate,
-                           const GatewayChatRequest &request) -> sylar::http::HttpResult::ptr {
+                           const GatewayChatRequest &request,
+                           RequestExecutionBudget *budget) -> sylar::http::HttpResult::ptr {
         if (!post)
         {
             return MakeAdapterError(sylar::http::HttpResult::Error::CONNECT_FAIL,
@@ -197,7 +230,9 @@ ProviderAttemptExecutor::AttemptHandler CreateOpenAICompatibleAttemptHandler(
         OpenAICompatibleProviderAdapter adapter;
         ProviderHttpRequest http_request;
         std::string error;
-        if (!adapter.buildChatRequest(candidate, request, api_key, options, &http_request, &error))
+        sylar::http::HttpRequestOptions request_options = ApplyBudgetToOptions(options, budget);
+        if (!adapter.buildChatRequest(candidate, request, api_key, request_options, &http_request,
+                                      &error))
         {
             return MakeAdapterError(sylar::http::HttpResult::Error::CONNECT_FAIL, error);
         }

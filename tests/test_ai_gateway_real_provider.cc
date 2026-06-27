@@ -259,6 +259,102 @@ void test_openai_adapter_sanitizes_parse_error()
     unsetenv("SYLAR_TEST_PROVIDER_KEY");
 }
 
+sylar::http::HttpResult::ptr RetryableNotSentFailure()
+{
+    sylar::http::HttpResult::ptr result = std::make_shared<sylar::http::HttpResult>(
+        (int)sylar::http::HttpResult::Error::CONNECT_FAIL, nullptr, "connect failed");
+    result->attempt.phase = sylar::http::HttpAttemptPhase::NOT_SENT;
+    result->attempt.may_have_submitted = false;
+    return result;
+}
+
+void test_request_execution_budget_limits_provider_failover_attempts()
+{
+    sylar::ai_gateway::LogicalModelRouter router;
+    std::string error;
+    EXPECT_TRUE(router.addCandidate(
+        MakeCandidate("provider-a", "general-chat", "https://api-a.example",
+                      "/v1/chat/completions", "upstream-a", "PROVIDER_A_KEY"),
+        &error));
+    EXPECT_TRUE(router.addCandidate(
+        MakeCandidate("provider-b", "general-chat", "https://api-b.example",
+                      "/v1/chat/completions", "upstream-b", "PROVIDER_B_KEY"),
+        &error));
+
+    int call_count = 0;
+    sylar::ai_gateway::ProviderAttemptExecutor executor(
+        router,
+        [&call_count](const sylar::ai_gateway::ProviderCandidate &,
+                      const sylar::ai_gateway::GatewayChatRequest &,
+                      sylar::ai_gateway::RequestExecutionBudget *) {
+            ++call_count;
+            return RetryableNotSentFailure();
+        });
+
+    sylar::ai_gateway::GatewayChatRequest request;
+    request.model = "general-chat";
+    request.messages.push_back({"user", "hello"});
+
+    sylar::ai_gateway::RequestExecutionBudget budget(1000, 1, "req-r3");
+    auto result = executor.execute(request, &budget);
+
+    EXPECT_TRUE(result != nullptr);
+    EXPECT_EQ(call_count, 1);
+    EXPECT_EQ(budget.consumedAttempts(), 1U);
+    EXPECT_EQ((int)budget.stopReason(),
+              (int)sylar::ai_gateway::RequestExecutionBudget::StopReason::ATTEMPTS_EXHAUSTED);
+    EXPECT_NE(result->error.find("attempts exhausted"), std::string::npos);
+}
+
+void test_openai_adapter_applies_remaining_budget_to_http_options()
+{
+    setenv("SYLAR_TEST_PROVIDER_KEY", "sk-r3-secret", 1);
+
+    sylar::ai_gateway::LogicalModelRouter router;
+    std::string error;
+    EXPECT_TRUE(router.addCandidate(
+        MakeCandidate("provider-a", "general-chat", "https://api-a.example",
+                      "/v1/chat/completions", "upstream-a", "SYLAR_TEST_PROVIDER_KEY"),
+        &error));
+
+    sylar::http::HttpRequestOptions base_options;
+    base_options.connect_timeout_ms = 5000;
+    base_options.send_timeout_ms = 5000;
+    base_options.recv_timeout_ms = 5000;
+    base_options.total_timeout_ms = 5000;
+
+    int call_count = 0;
+    auto handler = sylar::ai_gateway::CreateOpenAICompatibleAttemptHandler(
+        [&call_count](const sylar::ai_gateway::ProviderCandidate &,
+                      const sylar::ai_gateway::ProviderHttpRequest &http_request) {
+            ++call_count;
+            EXPECT_TRUE(http_request.options.connect_timeout_ms > 0);
+            EXPECT_TRUE(http_request.options.connect_timeout_ms <= 1000);
+            EXPECT_TRUE(http_request.options.send_timeout_ms > 0);
+            EXPECT_TRUE(http_request.options.send_timeout_ms <= 1000);
+            EXPECT_TRUE(http_request.options.recv_timeout_ms > 0);
+            EXPECT_TRUE(http_request.options.recv_timeout_ms <= 1000);
+            EXPECT_TRUE(http_request.options.total_timeout_ms > 0);
+            EXPECT_TRUE(http_request.options.total_timeout_ms <= 1000);
+            return OpenAICompatibleOkResult();
+        },
+        base_options);
+
+    sylar::ai_gateway::GatewayChatRequest request;
+    request.model = "general-chat";
+    request.messages.push_back({"user", "hello"});
+
+    sylar::ai_gateway::RequestExecutionBudget budget(1000, 1, "req-r3");
+    sylar::ai_gateway::ProviderAttemptExecutor executor(router, handler);
+    auto result = executor.execute(request, &budget);
+
+    EXPECT_TRUE(result != nullptr);
+    EXPECT_EQ(result->result, (int)sylar::http::HttpResult::Error::OK);
+    EXPECT_EQ(call_count, 1);
+
+    unsetenv("SYLAR_TEST_PROVIDER_KEY");
+}
+
 } // namespace
 
 int main()
@@ -268,5 +364,7 @@ int main()
     test_provider_aware_executor_preserves_candidate_specific_request_shape();
     test_openai_adapter_builds_request_and_parses_response_via_executor();
     test_openai_adapter_sanitizes_parse_error();
+    test_request_execution_budget_limits_provider_failover_attempts();
+    test_openai_adapter_applies_remaining_budget_to_http_options();
     return g_failures == 0 ? 0 : 1;
 }

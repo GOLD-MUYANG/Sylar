@@ -1,5 +1,7 @@
 #include "real_provider_gateway.h"
 
+#include "sylar/util.h"
+
 namespace sylar
 {
 namespace ai_gateway
@@ -32,7 +34,88 @@ sylar::http::HttpResult::ptr MakeExecutorError(sylar::http::HttpResult::Error er
     return result;
 }
 
+sylar::http::HttpResult::ptr MakeBudgetExhaustedError(RequestExecutionBudget *budget)
+{
+    if (!budget)
+    {
+        return MakeExecutorError(sylar::http::HttpResult::Error::CONNECT_FAIL,
+                                 "request execution budget missing");
+    }
+    RequestExecutionBudget::StopReason reason =
+        budget ? budget->stopReason() : RequestExecutionBudget::StopReason::NONE;
+    sylar::http::HttpResult::Error error =
+        reason == RequestExecutionBudget::StopReason::DEADLINE_EXHAUSTED
+            ? sylar::http::HttpResult::Error::TIMEOUT
+            : sylar::http::HttpResult::Error::CONNECT_FAIL;
+    std::string message = reason == RequestExecutionBudget::StopReason::DEADLINE_EXHAUSTED
+                              ? "request execution deadline exhausted"
+                              : "request execution attempts exhausted";
+    return MakeExecutorError(error, message);
+}
+
 } // namespace
+
+RequestExecutionBudget::RequestExecutionBudget(uint64_t deadline_ms,
+                                               uint32_t max_total_attempts,
+                                               const std::string &request_id)
+    : m_startMs(sylar::GetCurrentMS()), m_deadlineMs(deadline_ms),
+      m_maxTotalAttempts(max_total_attempts), m_requestId(request_id)
+{
+}
+// 计算当前距离业务请求总 deadline 还剩多少毫秒。
+//
+// 返回值：
+//   (uint64_t)-1：没有显式 deadline 限制；
+//   0：总时间预算已经耗尽；
+//   其他正数：还剩余的毫秒数。
+//
+uint64_t RequestExecutionBudget::remainingMs() const
+{
+    if (m_deadlineMs == (uint64_t)-1)
+    {
+        return (uint64_t)-1;
+    }
+
+    uint64_t now = sylar::GetCurrentMS();
+    uint64_t elapsed = now >= m_startMs ? now - m_startMs : 0;
+    if (elapsed >= m_deadlineMs)
+    {
+        return 0;
+    }
+    return m_deadlineMs - elapsed;
+}
+
+// 尝试消耗一次下游 HTTP 尝试额度。
+//
+// 调用方应该在真正发起一次 Provider HTTP 请求前调用它。
+// 返回 true 表示本次尝试额度消耗成功，可以继续执行 HTTP I/O。
+// 返回 false 表示不能继续尝试，具体原因通过 stopReason() 获取。
+
+// 检查顺序：
+//   1. 先检查 deadline；
+//   2. 再检查尝试次数；
+//   3. 两者都未耗尽，才消耗一次尝试额度。
+bool RequestExecutionBudget::tryConsumeAttempt()
+{
+    if (remainingMs() == 0)
+    {
+        m_stopReason = StopReason::DEADLINE_EXHAUSTED;
+        return false;
+    }
+    if (m_maxTotalAttempts > 0 && m_consumedAttempts >= m_maxTotalAttempts)
+    {
+        m_stopReason = StopReason::ATTEMPTS_EXHAUSTED;
+        return false;
+    }
+    // 通过预算检查，正式消耗一次尝试额度。
+    //
+    // 注意：
+    //   这里递增并不代表 HTTP 请求一定成功完成；
+    //   只代表调用方已经获得了一次“可以发起下游尝试”的许可。
+    ++m_consumedAttempts;
+    m_stopReason = StopReason::NONE;
+    return true;
+}
 
 const char *ProviderAdapterTypeToString(ProviderAdapterType type)
 {
@@ -105,12 +188,28 @@ bool LogicalModelRouter::hasModel(const std::string &logical_model) const
 
 ProviderAttemptExecutor::ProviderAttemptExecutor(const LogicalModelRouter &router,
                                                  AttemptHandler handler)
+    : m_router(router),
+      m_handler([handler](const ProviderCandidate &candidate,
+                          const GatewayChatRequest &request,
+                          RequestExecutionBudget *)
+                { return handler ? handler(candidate, request) : sylar::http::HttpResult::ptr(); })
+{
+}
+
+ProviderAttemptExecutor::ProviderAttemptExecutor(const LogicalModelRouter &router,
+                                                 BudgetedAttemptHandler handler)
     : m_router(router), m_handler(handler)
 {
 }
 
 sylar::http::HttpResult::ptr
 ProviderAttemptExecutor::execute(const GatewayChatRequest &request) const
+{
+    return execute(request, nullptr);
+}
+
+sylar::http::HttpResult::ptr ProviderAttemptExecutor::execute(const GatewayChatRequest &request,
+                                                              RequestExecutionBudget *budget) const
 {
     if (!m_handler)
     {
@@ -132,7 +231,12 @@ ProviderAttemptExecutor::execute(const GatewayChatRequest &request) const
     // candidate 顺序就是实际尝试顺序。
     for (const auto &candidate : candidates)
     {
-        last_result = m_handler(candidate, request);
+        if (budget && !budget->tryConsumeAttempt())
+        {
+            return MakeBudgetExhaustedError(budget);
+        }
+
+        last_result = m_handler(candidate, request, budget);
         if (!shouldTryNextCandidate(last_result))
         {
             return last_result;

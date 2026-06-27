@@ -71,7 +71,7 @@ typedef std::function<sylar::http::HttpResult::ptr(const ProviderCandidate &,
                                                    const ProviderHttpRequest &)>
     ProviderHttpPost;
 
-ProviderAttemptExecutor::AttemptHandler
+ProviderAttemptExecutor::BudgetedAttemptHandler
 CreateOpenAICompatibleAttemptHandler(
     const ProviderHttpPost &post,
     const sylar::http::HttpRequestOptions &options = sylar::http::HttpRequestOptions());
