@@ -132,7 +132,7 @@ sylar_add_executable(test_ai_gateway_load_balance
 target_include_directories(test_ai_gateway_load_balance PRIVATE ${JSONCPP_INCLUDE_DIRS})
 target_compile_options(test_ai_gateway_load_balance PRIVATE ${JSONCPP_CFLAGS_OTHER})
 sylar_add_executable(test_ai_gateway_real_provider
-    "tests/test_ai_gateway_real_provider.cc;modules/ai_gateway/ai_gateway_protocol.cc;modules/ai_gateway/real_provider_gateway.cc"
+    "tests/test_ai_gateway_real_provider.cc;modules/ai_gateway/ai_gateway_protocol.cc;modules/ai_gateway/real_provider_gateway.cc;modules/ai_gateway/ai_provider_adapter.cc"
     sylar "${LIBS};${JSONCPP_LIBRARIES}")
 target_include_directories(test_ai_gateway_real_provider PRIVATE ${JSONCPP_INCLUDE_DIRS})
 target_compile_options(test_ai_gateway_real_provider PRIVATE ${JSONCPP_CFLAGS_OTHER})
@@ -155,6 +155,7 @@ add_library(ai_gateway_module SHARED
     modules/ai_gateway/ai_gateway_demo_servlet.cc
     modules/ai_gateway/ai_gateway_servlet.cc
     modules/ai_gateway/ai_gateway_status_servlet.cc
+    modules/ai_gateway/ai_provider_adapter.cc
     modules/ai_gateway/real_provider_gateway.cc
     modules/ai_gateway/ai_gateway_upstream.cc)
 target_include_directories(ai_gateway_module PRIVATE ${JSONCPP_INCLUDE_DIRS})
