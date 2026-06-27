@@ -11,6 +11,78 @@ namespace sylar
 {
 namespace http
 {
+// 单次 HTTP 请求尝试所处的关键阶段。
+// 这个枚举主要用于判断：本次失败后，是否还能安全重试。
+enum class HttpAttemptPhase
+{
+    // 还没有真正发起请求。
+    // 通常表示连接前失败、参数错误、连接池获取失败等。
+    NOT_SENT = 0,
+    // 请求体还没开始发送前就失败。
+    // 例如 TCP/TLS 建立失败，或者发送请求头前失败。
+    SEND_FAILED_BEFORE_BODY = 1,
+    // 请求已经开始发送，但没有确认完整写完，或者状态无法确定。
+    // 例如写了一部分就断开、send 返回异常、连接状态不明。
+    PARTIAL_WRITE_OR_UNKNOWN = 2,
+    // 请求已经完整发出，但等待响应超时。
+    // 服务端很可能已经处理了请求，只是客户端没有等到结果。
+    RESPONSE_TIMEOUT_AFTER_SEND = 3,
+    // 已经收到 HTTP 响应。
+    // 后续是否重试应主要根据 HTTP 状态码、响应是否完整、业务错误类型判断。
+    RESPONSE_RECEIVED = 4,
+};
+// 将请求阶段转换成字符串，主要用于日志、错误信息和测试断言。
+const char *HttpAttemptPhaseToString(HttpAttemptPhase phase);
+
+// 单次 HTTP 请求尝试的结果记录。
+// 它不只记录“成功/失败”，还记录请求到底走到了哪一步，
+// 便于上层做幂等重试、错误分类、日志诊断和统计。
+struct HttpAttemptOutcome
+{
+    // 本次尝试的粗粒度阶段，用于快速判断重试风险。
+    HttpAttemptPhase phase = HttpAttemptPhase::NOT_SENT;
+
+    // 是否已经建立 TCP 连接。
+    bool tcp_connected = false;
+
+    // TLS 握手是否完成。
+    // 非 HTTPS 请求可以一直保持 false，或者由调用方约定忽略该字段。
+    bool tls_handshake_completed = false;
+
+    // 是否已经开始写请求字节。
+    // 一旦为 true，就不能简单认为服务端完全没有收到请求。
+    bool request_bytes_started = false;
+
+    // 请求字节是否已经完整写出。
+    // 注意：完整写出只代表客户端写入成功，不代表服务端一定处理完成。
+    bool request_bytes_completed = false;
+
+    // 是否已经开始接收响应。
+    // 例如已经读到响应头或部分响应数据。
+    bool response_started = false;
+
+    // 响应是否完整接收。
+    // 如果为 false，但 response_started 为 true，说明响应中途断开或超时。
+    bool response_completed = false;
+
+    // 本次请求是否“可能已经提交给服务端处理”。
+    // 这是重试判断里的关键字段：
+    // - false：通常可以安全重试；
+    // - true：非幂等请求重试可能造成重复提交。
+    bool may_have_submitted = false;
+
+    // 已经成功写出的请求字节数。
+    // 用于区分“完全没发出去”和“发了一部分后失败”。
+    uint64_t request_bytes_sent = 0;
+
+    // HTTP 状态码。
+    // 0 表示还没有拿到有效 HTTP 响应。
+    int http_status = 0;
+
+    // 失败或异常的补充说明。
+    // 例如 errno、超时阶段、解析错误、连接关闭原因等。
+    std::string detail;
+};
 
 /**
  * @brief HTTP响应结果
@@ -79,6 +151,8 @@ struct HttpResult
     HttpResponse::ptr response;
     /// 错误描述
     std::string error;
+    /// 单次 HTTP 尝试的阶段元数据，用于判断是否可能已提交给上游。
+    HttpAttemptOutcome attempt;
 
     std::string toString() const;
 };
@@ -211,9 +285,8 @@ public:
      * @return 返回HTTP结果结构体
      */
     static HttpResult::ptr DoRequest(HttpRequest::ptr req, Uri::ptr uri, uint64_t timeout_ms);
-    static HttpResult::ptr DoRequest(HttpRequest::ptr req,
-                                     Uri::ptr uri,
-                                     const HttpRequestOptions &options);
+    static HttpResult::ptr
+    DoRequest(HttpRequest::ptr req, Uri::ptr uri, const HttpRequestOptions &options);
 
     /**
      * @brief 构造函数
@@ -237,6 +310,7 @@ public:
      * @param[in] req HTTP请求结构
      */
     int sendRequest(HttpRequest::ptr req);
+    int sendRequest(HttpRequest::ptr req, HttpAttemptOutcome *attempt);
 
 private:
     uint64_t m_createTime = 0;
@@ -395,6 +469,7 @@ private:
     };
 
     HttpConnection::ptr getConnection(uint64_t timeout_ms);
+    HttpConnection::ptr getConnection(uint64_t timeout_ms, const HttpRequestOptions &options);
     static void ReleasePtr(HttpConnection *ptr, HttpConnectionPool *pool);
     bool isConnectionReusable(HttpConnection *ptr, uint64_t now_ms) const;
     void notifyWaiter();

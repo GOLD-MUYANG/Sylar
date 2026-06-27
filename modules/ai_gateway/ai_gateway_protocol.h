@@ -17,11 +17,19 @@ struct ChatMessage
     std::string content;
 };
 
-struct ChatCompletionRequest
+struct GatewayChatRequest
 {
     std::string model;
     std::vector<ChatMessage> messages;
 };
+
+struct GatewayChatResponse
+{
+    std::string model;
+    std::string content;
+};
+
+typedef GatewayChatRequest ChatCompletionRequest;
 
 /**
  * @brief 解析并校验第一版支持的 Chat Completions 非流式请求。

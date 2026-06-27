@@ -99,6 +99,7 @@ sylar_add_executable(test_http_connection "tests/test_http_connection.cc" sylar 
 sylar_add_executable(test_http_session_recv_error "tests/test_http_session_recv_error.cc" sylar
                      "${LIBS}")
 sylar_add_executable(test_http_request_options "tests/test_http_request_options.cc" sylar "${LIBS}")
+sylar_add_executable(test_http_attempt_outcome "tests/test_http_attempt_outcome.cc" sylar "${LIBS}")
 sylar_add_executable(test_http_client "tests/test_http_client.cc" sylar "${LIBS}")
 sylar_add_executable(test_http_circuit_breaker "tests/test_http_circuit_breaker.cc" sylar "${LIBS}")
 sylar_add_executable(test_http_concurrency_limiter "tests/test_http_concurrency_limiter.cc" sylar "${LIBS}")
@@ -130,6 +131,11 @@ sylar_add_executable(test_ai_gateway_load_balance
     sylar "${LIBS};${JSONCPP_LIBRARIES}")
 target_include_directories(test_ai_gateway_load_balance PRIVATE ${JSONCPP_INCLUDE_DIRS})
 target_compile_options(test_ai_gateway_load_balance PRIVATE ${JSONCPP_CFLAGS_OTHER})
+sylar_add_executable(test_ai_gateway_real_provider
+    "tests/test_ai_gateway_real_provider.cc;modules/ai_gateway/ai_gateway_protocol.cc;modules/ai_gateway/real_provider_gateway.cc"
+    sylar "${LIBS};${JSONCPP_LIBRARIES}")
+target_include_directories(test_ai_gateway_real_provider PRIVATE ${JSONCPP_INCLUDE_DIRS})
+target_compile_options(test_ai_gateway_real_provider PRIVATE ${JSONCPP_CFLAGS_OTHER})
 sylar_add_executable(test_ai_gateway_status
     "tests/test_ai_gateway_status.cc;modules/ai_gateway/ai_gateway_status_servlet.cc;modules/ai_gateway/ai_gateway_upstream.cc"
     sylar "${LIBS};${JSONCPP_LIBRARIES}")
@@ -149,6 +155,7 @@ add_library(ai_gateway_module SHARED
     modules/ai_gateway/ai_gateway_demo_servlet.cc
     modules/ai_gateway/ai_gateway_servlet.cc
     modules/ai_gateway/ai_gateway_status_servlet.cc
+    modules/ai_gateway/real_provider_gateway.cc
     modules/ai_gateway/ai_gateway_upstream.cc)
 target_include_directories(ai_gateway_module PRIVATE ${JSONCPP_INCLUDE_DIRS})
 target_compile_options(ai_gateway_module PRIVATE ${JSONCPP_CFLAGS_OTHER})
@@ -160,6 +167,7 @@ add_test(NAME worker_group COMMAND $<TARGET_FILE:test_worker_group>)
 add_test(NAME http_session_recv_error COMMAND $<TARGET_FILE:test_http_session_recv_error>)
 add_test(NAME env_config COMMAND $<TARGET_FILE:test_env_config>)
 add_test(NAME http_connection_pool COMMAND $<TARGET_FILE:test_http_connection_pool>)
+add_test(NAME http_attempt_outcome COMMAND $<TARGET_FILE:test_http_attempt_outcome>)
 add_test(NAME module_lifecycle COMMAND $<TARGET_FILE:test_module_lifecycle>)
 add_test(NAME tls_client_options COMMAND $<TARGET_FILE:test_tls_client_options>)
 add_test(NAME module_config_timing COMMAND $<TARGET_FILE:test_module_config_timing>)
@@ -167,17 +175,18 @@ add_test(NAME ai_gateway_route_registry COMMAND $<TARGET_FILE:test_ai_gateway_ro
 add_test(NAME ai_gateway_protocol COMMAND $<TARGET_FILE:test_ai_gateway_protocol>)
 add_test(NAME ai_gateway_servlet COMMAND $<TARGET_FILE:test_ai_gateway_servlet>)
 add_test(NAME ai_gateway_load_balance COMMAND $<TARGET_FILE:test_ai_gateway_load_balance>)
+add_test(NAME ai_gateway_real_provider COMMAND $<TARGET_FILE:test_ai_gateway_real_provider>)
 add_test(NAME ai_gateway_status COMMAND $<TARGET_FILE:test_ai_gateway_status>)
 add_test(NAME ai_gateway_demo_servlet COMMAND $<TARGET_FILE:test_ai_gateway_demo_servlet>)
 add_test(NAME startup_missing_config COMMAND $<TARGET_FILE:bin_sylar> -s -c /tmp/sylar-missing-config)
 set_tests_properties(startup_missing_config PROPERTIES WILL_FAIL TRUE)
 set_tests_properties(worker_group http_session_recv_error env_config http_connection_pool
-                     module_lifecycle tls_client_options module_config_timing
+                     http_attempt_outcome module_lifecycle tls_client_options module_config_timing
                      ai_gateway_route_registry startup_missing_config
                      PROPERTIES LABELS "unit")
 set_tests_properties(ai_gateway_protocol ai_gateway_servlet PROPERTIES LABELS "unit")
-set_tests_properties(ai_gateway_load_balance ai_gateway_status ai_gateway_demo_servlet PROPERTIES
-                     LABELS "unit")
+set_tests_properties(ai_gateway_load_balance ai_gateway_real_provider ai_gateway_status
+                     ai_gateway_demo_servlet PROPERTIES LABELS "unit")
 # sylar_add_executable(test_uri "tests/test_uri.cc" sylar "${LIBS}")
 # sylar_add_executable(test_daemon "tests/test_daemon.cc" sylar "${LIBS}")
 # sylar_add_executable(test_application "tests/test_application.cc" sylar "${LIBS}")

@@ -47,10 +47,52 @@ MergeTimeout(uint64_t stage_timeout_ms, uint64_t start_ms, uint64_t total_timeou
     return std::min(stage_timeout_ms, left);
 }
 
+const char *HttpAttemptPhaseToString(HttpAttemptPhase phase)
+{
+    switch (phase)
+    {
+    case HttpAttemptPhase::NOT_SENT:
+        return "not_sent";
+    case HttpAttemptPhase::SEND_FAILED_BEFORE_BODY:
+        return "send_failed_before_body";
+    case HttpAttemptPhase::PARTIAL_WRITE_OR_UNKNOWN:
+        return "partial_write_or_unknown";
+    case HttpAttemptPhase::RESPONSE_TIMEOUT_AFTER_SEND:
+        return "response_timeout_after_send";
+    case HttpAttemptPhase::RESPONSE_RECEIVED:
+        return "response_received";
+    default:
+        return "unknown";
+    }
+}
+
+static HttpResult::ptr MakeHttpResult(int result,
+                                      HttpResponse::ptr response,
+                                      const std::string &error,
+                                      const HttpAttemptOutcome &attempt)
+{
+    HttpResult::ptr value = std::make_shared<HttpResult>(result, response, error);
+    value->attempt = attempt;
+    return value;
+}
+
+static SSLSocket::ClientOptions BuildTlsClientOptions(const std::string &host,
+                                                      const HttpRequestOptions &options)
+{
+    SSLSocket::ClientOptions tls_options;
+    tls_options.server_name = options.tls_server_name.empty() ? host : options.tls_server_name;
+    tls_options.ca_file = options.tls_ca_file;
+    tls_options.ca_path = options.tls_ca_path;
+    tls_options.verify_peer = options.tls_verify_peer;
+    return tls_options;
+}
+
 std::string HttpResult::toString() const
 {
     std::stringstream ss;
     ss << "[HttpResult result=" << result << " error=" << error
+       << " attempt_phase=" << HttpAttemptPhaseToString(attempt.phase)
+       << " may_have_submitted=" << attempt.may_have_submitted
        << " response=" << (response ? response->toString() : "nullptr") << "]";
     return ss.str();
 }
@@ -202,10 +244,52 @@ HttpResponse::ptr HttpConnection::recvResponse()
 
 int HttpConnection::sendRequest(HttpRequest::ptr rsp)
 {
+    return sendRequest(rsp, nullptr);
+}
+
+int HttpConnection::sendRequest(HttpRequest::ptr rsp, HttpAttemptOutcome *attempt)
+{
     std::stringstream ss;
     ss << *rsp;
     std::string data = ss.str();
-    return writeFixSize(data.c_str(), data.size());
+    size_t offset = 0;
+    int64_t left = data.size();
+    while (left > 0)
+    {
+        int64_t len = write(data.c_str() + offset, left);
+        if (len <= 0)
+        {
+            if (attempt)
+            {
+                if (attempt->request_bytes_started)
+                {
+                    attempt->phase = HttpAttemptPhase::PARTIAL_WRITE_OR_UNKNOWN;
+                    attempt->may_have_submitted = true;
+                }
+                else
+                {
+                    attempt->phase = HttpAttemptPhase::SEND_FAILED_BEFORE_BODY;
+                    attempt->may_have_submitted = false;
+                }
+            }
+            return len;
+        }
+
+        if (attempt)
+        {
+            attempt->request_bytes_started = true;
+            attempt->request_bytes_sent += len;
+        }
+        offset += len;
+        left -= len;
+    }
+
+    if (attempt)
+    {
+        attempt->request_bytes_completed = true;
+        attempt->may_have_submitted = true;
+    }
+    return data.size();
 }
 
 HttpResult::ptr HttpConnection::DoGet(const std::string &url,
@@ -364,55 +448,74 @@ HttpResult::ptr
 HttpConnection::DoRequest(HttpRequest::ptr req, Uri::ptr uri, const HttpRequestOptions &options)
 {
     uint64_t start_ms = sylar::GetCurrentMS();
+    HttpAttemptOutcome attempt;
     bool is_ssl = uri->getScheme() == "https";
     Address::ptr addr = uri->createAddress();
     if (!addr)
     {
-        return std::make_shared<HttpResult>((int)HttpResult::Error::INVALID_HOST, nullptr,
-                                            "invalid host: " + uri->getHost());
+        attempt.detail = "invalid_host";
+        return MakeHttpResult((int)HttpResult::Error::INVALID_HOST, nullptr,
+                              "invalid host: " + uri->getHost(), attempt);
     }
     Socket::ptr sock = is_ssl ? SSLSocket::CreateTCP(addr) : Socket::CreateTCP(addr);
     if (!sock)
     {
-        return std::make_shared<HttpResult>((int)HttpResult::Error::CREATE_SOCKET_ERROR, nullptr,
-                                            "create socket fail: " + addr->toString() +
-                                                " errno=" + std::to_string(errno) +
-                                                " errstr=" + std::string(strerror(errno)));
+        attempt.detail = "create_socket_error";
+        return MakeHttpResult((int)HttpResult::Error::CREATE_SOCKET_ERROR, nullptr,
+                              "create socket fail: " + addr->toString() +
+                                  " errno=" + std::to_string(errno) +
+                                  " errstr=" + std::string(strerror(errno)),
+                              attempt);
+    }
+    if (is_ssl)
+    {
+        auto ssl_socket = std::dynamic_pointer_cast<SSLSocket>(sock);
+        ssl_socket->setClientOptions(BuildTlsClientOptions(uri->getHost(), options));
     }
     uint64_t connect_timeout_ms =
         MergeTimeout(options.connect_timeout_ms, start_ms, options.total_timeout_ms);
     if (!sock->connect(addr, connect_timeout_ms))
     {
-        return std::make_shared<HttpResult>((int)HttpResult::Error::CONNECT_FAIL, nullptr,
-                                            "connect fail: " + addr->toString());
+        attempt.detail = is_ssl ? "connect_or_tls_handshake_fail" : "connect_fail";
+        return MakeHttpResult((int)HttpResult::Error::CONNECT_FAIL, nullptr,
+                              "connect fail: " + addr->toString(), attempt);
     }
+    attempt.tcp_connected = true;
+    attempt.tls_handshake_completed = is_ssl;
     sock->setSendTimeOut(MergeTimeout(options.send_timeout_ms, start_ms, options.total_timeout_ms));
     sock->setRecvTimeOut(MergeTimeout(options.recv_timeout_ms, start_ms, options.total_timeout_ms));
     HttpConnection::ptr conn = std::make_shared<HttpConnection>(sock);
-    int rt = conn->sendRequest(req);
+    int rt = conn->sendRequest(req, &attempt);
     if (rt == 0)
     {
-        return std::make_shared<HttpResult>((int)HttpResult::Error::SEND_CLOSE_BY_PEER, nullptr,
-                                            "send request closed by peer: " + addr->toString());
+        return MakeHttpResult((int)HttpResult::Error::SEND_CLOSE_BY_PEER, nullptr,
+                              "send request closed by peer: " + addr->toString(), attempt);
     }
     if (rt < 0)
     {
-        return std::make_shared<HttpResult>(
-            (int)HttpResult::Error::SEND_SOCKET_ERROR, nullptr,
-            "send request socket error errno=" + std::to_string(errno) +
-                " errstr=" + std::string(strerror(errno)));
+        return MakeHttpResult((int)HttpResult::Error::SEND_SOCKET_ERROR, nullptr,
+                              "send request socket error errno=" + std::to_string(errno) +
+                                  " errstr=" + std::string(strerror(errno)),
+                              attempt);
     }
     sock->setRecvTimeOut(MergeTimeout(options.recv_timeout_ms, start_ms, options.total_timeout_ms));
     auto rsp = conn->recvResponse();
     if (!rsp)
     {
-        return std::make_shared<HttpResult>(
-            (int)HttpResult::Error::TIMEOUT, nullptr,
-            "recv response timeout: " + addr->toString() +
-                " recv_timeout_ms:" + std::to_string(options.recv_timeout_ms) +
-                " total_timeout_ms:" + std::to_string(options.total_timeout_ms));
+        attempt.phase = HttpAttemptPhase::RESPONSE_TIMEOUT_AFTER_SEND;
+        attempt.may_have_submitted = true;
+        return MakeHttpResult((int)HttpResult::Error::TIMEOUT, nullptr,
+                              "recv response timeout: " + addr->toString() +
+                                  " recv_timeout_ms:" + std::to_string(options.recv_timeout_ms) +
+                                  " total_timeout_ms:" +
+                                  std::to_string(options.total_timeout_ms),
+                              attempt);
     }
-    return std::make_shared<HttpResult>((int)HttpResult::Error::OK, rsp, "ok");
+    attempt.phase = HttpAttemptPhase::RESPONSE_RECEIVED;
+    attempt.response_started = true;
+    attempt.response_completed = true;
+    attempt.http_status = (int)rsp->getStatus();
+    return MakeHttpResult((int)HttpResult::Error::OK, rsp, "ok", attempt);
 }
 HttpConnectionPool::ptr HttpConnectionPool::Create(const std::string &uri,
                                                    const std::string &vhost,
@@ -512,6 +615,12 @@ void HttpConnectionPool::notifyWaiter()
 */
 HttpConnection::ptr HttpConnectionPool::getConnection(uint64_t timeout_ms)
 {
+    return getConnection(timeout_ms, HttpRequestOptions());
+}
+
+HttpConnection::ptr HttpConnectionPool::getConnection(uint64_t timeout_ms,
+                                                      const HttpRequestOptions &options)
+{
     uint64_t start_ms = sylar::GetCurrentMS();
     std::vector<HttpConnection *> invalid_conns;
     while (true)
@@ -598,9 +707,7 @@ HttpConnection::ptr HttpConnectionPool::getConnection(uint64_t timeout_ms)
             if (m_isHttps)
             {
                 auto ssl_socket = std::dynamic_pointer_cast<SSLSocket>(sock);
-                SSLSocket::ClientOptions options;
-                options.server_name = m_host;
-                ssl_socket->setClientOptions(options);
+                ssl_socket->setClientOptions(BuildTlsClientOptions(m_host, options));
             }
             uint64_t connect_timeout_ms = MergeTimeout(timeout_ms, start_ms, timeout_ms);
             if (!sock->connect(addr, connect_timeout_ms))
@@ -833,53 +940,65 @@ HttpResult::ptr HttpConnectionPool::doRequest(HttpRequest::ptr req,
                                               const HttpRequestOptions &options)
 {
     uint64_t start_ms = sylar::GetCurrentMS();
+    HttpAttemptOutcome attempt;
     uint64_t connect_timeout_ms =
         MergeTimeout(options.connect_timeout_ms, start_ms, options.total_timeout_ms);
-    auto conn = getConnection(connect_timeout_ms);
+    auto conn = getConnection(connect_timeout_ms, options);
     if (!conn)
     {
-        return std::make_shared<HttpResult>((int)HttpResult::Error::POOL_GET_CONNECTION, nullptr,
-                                            "pool host:" + m_host +
-                                                " port:" + std::to_string(m_port));
+        attempt.detail = m_isHttps ? "pool_get_connection_or_tls_fail" : "pool_get_connection";
+        return MakeHttpResult((int)HttpResult::Error::POOL_GET_CONNECTION, nullptr,
+                              "pool host:" + m_host + " port:" + std::to_string(m_port), attempt);
     }
     auto sock = conn->getSocket();
     if (!sock)
     {
-        return std::make_shared<HttpResult>(
-            (int)HttpResult::Error::POOL_INVALID_CONNECTION, nullptr,
-            "pool host:" + m_host + " port:" + std::to_string(m_port));
+        attempt.detail = "pool_invalid_connection";
+        return MakeHttpResult((int)HttpResult::Error::POOL_INVALID_CONNECTION, nullptr,
+                              "pool host:" + m_host + " port:" + std::to_string(m_port), attempt);
     }
+    attempt.tcp_connected = true;
+    attempt.tls_handshake_completed = m_isHttps;
     sock->setSendTimeOut(MergeTimeout(options.send_timeout_ms, start_ms, options.total_timeout_ms));
     sock->setRecvTimeOut(MergeTimeout(options.recv_timeout_ms, start_ms, options.total_timeout_ms));
-    int rt = conn->sendRequest(req);
+    int rt = conn->sendRequest(req, &attempt);
     if (rt == 0)
     {
-        return std::make_shared<HttpResult>((int)HttpResult::Error::SEND_CLOSE_BY_PEER, nullptr,
-                                            "send request closed by peer: " +
-                                                sock->getRemoteAddress()->toString());
+        return MakeHttpResult((int)HttpResult::Error::SEND_CLOSE_BY_PEER, nullptr,
+                              "send request closed by peer: " +
+                                  sock->getRemoteAddress()->toString(),
+                              attempt);
     }
     if (rt < 0)
     {
-        return std::make_shared<HttpResult>(
-            (int)HttpResult::Error::SEND_SOCKET_ERROR, nullptr,
-            "send request socket error errno=" + std::to_string(errno) +
-                " errstr=" + std::string(strerror(errno)));
+        return MakeHttpResult((int)HttpResult::Error::SEND_SOCKET_ERROR, nullptr,
+                              "send request socket error errno=" + std::to_string(errno) +
+                                  " errstr=" + std::string(strerror(errno)),
+                              attempt);
     }
     sock->setRecvTimeOut(MergeTimeout(options.recv_timeout_ms, start_ms, options.total_timeout_ms));
     auto rsp = conn->recvResponse();
     if (!rsp)
     {
-        return std::make_shared<HttpResult>(
-            (int)HttpResult::Error::TIMEOUT, nullptr,
-            "recv response timeout: " + sock->getRemoteAddress()->toString() +
-                " recv_timeout_ms:" + std::to_string(options.recv_timeout_ms) +
-                " total_timeout_ms:" + std::to_string(options.total_timeout_ms));
+        attempt.phase = HttpAttemptPhase::RESPONSE_TIMEOUT_AFTER_SEND;
+        attempt.may_have_submitted = true;
+        return MakeHttpResult((int)HttpResult::Error::TIMEOUT, nullptr,
+                              "recv response timeout: " + sock->getRemoteAddress()->toString() +
+                                  " recv_timeout_ms:" +
+                                  std::to_string(options.recv_timeout_ms) +
+                                  " total_timeout_ms:" +
+                                  std::to_string(options.total_timeout_ms),
+                              attempt);
     }
     if (rsp->isClose())
     {
         conn->close();
     }
-    return std::make_shared<HttpResult>((int)HttpResult::Error::OK, rsp, "ok");
+    attempt.phase = HttpAttemptPhase::RESPONSE_RECEIVED;
+    attempt.response_started = true;
+    attempt.response_completed = true;
+    attempt.http_status = (int)rsp->getStatus();
+    return MakeHttpResult((int)HttpResult::Error::OK, rsp, "ok", attempt);
 }
 
 } // namespace http

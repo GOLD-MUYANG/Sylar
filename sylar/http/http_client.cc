@@ -221,8 +221,12 @@ HttpResult::ptr HttpClient::request(HttpMethod method,
     // 这里仍然做防御式判断，避免空指针崩溃。
     if (!m_pool)
     {
-        return std::make_shared<HttpResult>((int)HttpResult::Error::POOL_INVALID_CONNECTION,
-                                            nullptr, "http client pool invalid");
+        HttpAttemptOutcome attempt;
+        attempt.detail = "http_client_pool_invalid";
+        HttpResult::ptr result = std::make_shared<HttpResult>(
+            (int)HttpResult::Error::POOL_INVALID_CONNECTION, nullptr, "http client pool invalid");
+        result->attempt = attempt;
+        return result;
     }
 
     // 空 path 统一当作根路径 /。
@@ -239,10 +243,15 @@ HttpResult::ptr HttpClient::request(HttpMethod method,
         if (retry_options.max_total_attempts > 0 &&
             retry_index >= retry_options.max_total_attempts)
         {
-            return result ? result
-                          : std::make_shared<HttpResult>(
-                                (int)HttpResult::Error::CONNECT_FAIL, nullptr,
-                                "http client max total attempts exhausted");
+            if (result)
+            {
+                return result;
+            }
+            HttpResult::ptr exhausted = std::make_shared<HttpResult>(
+                (int)HttpResult::Error::CONNECT_FAIL, nullptr,
+                "http client max total attempts exhausted");
+            exhausted->attempt.detail = "max_total_attempts_exhausted";
+            return exhausted;
         }
 
         result = NormalizeResult(m_pool->doRequest(method, request_path, options, headers, body));
@@ -379,8 +388,10 @@ HttpResult::ptr HttpClient::NormalizeResult(HttpResult::ptr result)
     // 底层返回空指针，说明没有拿到有效 HttpResult。
     if (!result)
     {
-        return std::make_shared<HttpResult>((int)HttpResult::Error::RESPONSE_PARSE_FAIL, nullptr,
-                                            "empty http result");
+        HttpResult::ptr empty = std::make_shared<HttpResult>(
+            (int)HttpResult::Error::RESPONSE_PARSE_FAIL, nullptr, "empty http result");
+        empty->attempt.detail = "empty_http_result";
+        return empty;
     }
 
     // HttpResult::result 是 int，这里转回枚举，方便 switch 判断。
