@@ -2,6 +2,8 @@
 #define __SYLAR_AI_GATEWAY_REAL_PROVIDER_GATEWAY_H__
 
 #include "ai_gateway_protocol.h"
+#include "sylar/http/http_circuit_breaker.h"
+#include "sylar/http/http_concurrency_limiter.h"
 #include "sylar/http/http_connection.h"
 
 #include <stdint.h>
@@ -92,6 +94,15 @@ struct ProviderCandidate
     std::string api_key_env;
     std::string compatibility_key;
     bool enabled = false;
+};
+
+// 真实 Provider 执行阶段可选的治理组件。
+//
+// 它只承接已有 HTTP limiter / breaker 状态机，不在 AI 网关层重新实现这些机制。
+struct ProviderExecutionControls
+{
+    sylar::http::HttpConcurrencyLimiter::ptr limiter;
+    sylar::http::HttpCircuitBreaker::ptr circuit_breaker;
 };
 
 // 单次真实 Provider 业务请求共享的执行预算。
@@ -209,6 +220,9 @@ public:
 
     ProviderAttemptExecutor(const LogicalModelRouter &router, AttemptHandler handler);
     ProviderAttemptExecutor(const LogicalModelRouter &router, BudgetedAttemptHandler handler);
+    ProviderAttemptExecutor(const LogicalModelRouter &router,
+                            BudgetedAttemptHandler handler,
+                            const ProviderExecutionControls &controls);
 
     sylar::http::HttpResult::ptr execute(const GatewayChatRequest &request) const;
     sylar::http::HttpResult::ptr execute(const GatewayChatRequest &request,
@@ -221,6 +235,7 @@ private:
 private:
     LogicalModelRouter m_router;
     BudgetedAttemptHandler m_handler;
+    ProviderExecutionControls m_controls;
 };
 
 } // namespace ai_gateway

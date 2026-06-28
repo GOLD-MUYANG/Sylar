@@ -73,6 +73,41 @@ bool ParseJsonObject(const std::string &body, Json::Value *root)
     return reader->parse(body.data(), body.data() + body.size(), root, &errors) && root->isObject();
 }
 
+bool IsNonEmptyString(const Json::Value &value)
+{
+    return value.isString() && !value.asString().empty();
+}
+
+bool IsTokenCount(const Json::Value &value)
+{
+    return value.isUInt() || value.isUInt64();
+}
+
+bool ValidateOpenAIChatCompletionShape(const Json::Value &root)
+{
+    if (!IsNonEmptyString(root["id"]) || root["object"].asString() != "chat.completion" ||
+        !root["created"].isNumeric() || !IsNonEmptyString(root["model"]) ||
+        !root["choices"].isArray() || root["choices"].empty() || !root["usage"].isObject())
+    {
+        return false;
+    }
+
+    const Json::Value &usage = root["usage"];
+    if (!IsTokenCount(usage["prompt_tokens"]) || !IsTokenCount(usage["completion_tokens"]) ||
+        !IsTokenCount(usage["total_tokens"]))
+    {
+        return false;
+    }
+
+    // R6 只校验 Chat Completions 非流式基础响应形状。
+    // 这里不解析 usage 或 provider 原始 ID，只确认 choices[0] 能安全映射为网关响应。
+    const Json::Value &choice = root["choices"][0];
+    const Json::Value &message = choice["message"];
+    return choice.isObject() && choice["index"].isNumeric() &&
+           IsNonEmptyString(choice["finish_reason"]) && message.isObject() &&
+           message["role"].asString() == "assistant" && message["content"].isString();
+}
+
 const char *GetEnvValue(const std::string &name)
 {
     if (name.empty())
@@ -180,17 +215,12 @@ bool OpenAICompatibleProviderAdapter::parseChatResponse(const ProviderCandidate 
     }
 
     Json::Value root;
-    if (!ParseJsonObject(body, &root) || !root["choices"].isArray() || root["choices"].empty())
+    if (!ParseJsonObject(body, &root) || !ValidateOpenAIChatCompletionShape(root))
     {
         return SetError("provider 响应格式无效", error);
     }
 
     const Json::Value &message = root["choices"][0]["message"];
-    if (!message.isObject() || !message["content"].isString())
-    {
-        return SetError("provider 响应格式无效", error);
-    }
-
     GatewayChatResponse parsed;
     parsed.model = candidate.logical_model;
     parsed.content = message["content"].asString();

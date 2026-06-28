@@ -3,6 +3,8 @@
 #include "ai_gateway_protocol.h"
 #include "sylar/util.h"
 
+#include <exception>
+
 namespace sylar
 {
 namespace ai_gateway
@@ -53,6 +55,49 @@ sylar::http::HttpResult::ptr MakeBudgetExhaustedError(RequestExecutionBudget *bu
                               : "request execution attempts exhausted";
     return MakeExecutorError(error, message);
 }
+
+sylar::http::HttpResult::ptr MakeProtectionError(sylar::http::HttpResult::Error error,
+                                                 const std::string &message)
+{
+    sylar::http::HttpResult::ptr result = MakeExecutorError(error, message);
+    result->attempt.phase = sylar::http::HttpAttemptPhase::NOT_SENT;
+    result->attempt.may_have_submitted = false;
+    return result;
+}
+
+sylar::http::HttpResult::ptr MakeHandlerExceptionError(const std::string &message)
+{
+    sylar::http::HttpResult::ptr result =
+        MakeExecutorError(sylar::http::HttpResult::Error::CONNECT_FAIL, message);
+    result->attempt.phase = sylar::http::HttpAttemptPhase::PARTIAL_WRITE_OR_UNKNOWN;
+    result->attempt.may_have_submitted = true;
+    result->attempt.detail = "provider attempt handler exception";
+    return result;
+}
+
+sylar::http::HttpResult::ptr MakeBreakerNonFailureResult()
+{
+    return std::make_shared<sylar::http::HttpResult>(
+        (int)sylar::http::HttpResult::Error::OK, nullptr, "not a breaker failure");
+}
+
+void ReportBreakerResult(const sylar::http::HttpCircuitBreaker::ptr &breaker,
+                         const std::string &endpoint_key,
+                         const sylar::http::HttpResult::ptr &result)
+{
+    if (!breaker)
+    {
+        return;
+    }
+    ProviderErrorDecision decision = ClassifyProviderAttemptResult(result);
+    if (decision.category == ProviderErrorCategory::NONE || decision.breaker_failure)
+    {
+        breaker->onRequestComplete(endpoint_key, result);
+        return;
+    }
+    breaker->onRequestComplete(endpoint_key, MakeBreakerNonFailureResult());
+}
+
 // 从 HttpResult 中提取 Provider 实际返回的 HTTP 状态码。
 int GetProviderHttpStatus(const sylar::http::HttpResult::ptr &result)
 {
@@ -118,6 +163,28 @@ ProviderErrorDecision ClassifyProviderAttemptResult(const sylar::http::HttpResul
     {
         decision.category = ProviderErrorCategory::NONE;
         decision.gateway_status = sylar::http::HttpStatus::OK;
+        return decision;
+    }
+
+    if (result->result == (int)sylar::http::HttpResult::Error::RATE_LIMITED)
+    {
+        decision.category = ProviderErrorCategory::RATE_LIMITED;
+        decision.try_next_candidate = true;
+        decision.gateway_status = sylar::http::HttpStatus::TOO_MANY_REQUESTS;
+        decision.error_type = "rate_limit_error";
+        decision.error_code = "PROVIDER_ADMISSION_LIMITED";
+        decision.message = "上游 Provider 当前不可准入";
+        return decision;
+    }
+
+    if (result->result == (int)sylar::http::HttpResult::Error::CIRCUIT_OPEN)
+    {
+        decision.category = ProviderErrorCategory::RETRYABLE_UPSTREAM;
+        decision.try_next_candidate = true;
+        decision.gateway_status = sylar::http::HttpStatus::BAD_GATEWAY;
+        decision.error_type = "server_error";
+        decision.error_code = "PROVIDER_CIRCUIT_OPEN";
+        decision.message = "上游 Provider 熔断打开";
         return decision;
     }
 
@@ -392,6 +459,13 @@ ProviderAttemptExecutor::ProviderAttemptExecutor(const LogicalModelRouter &route
 {
 }
 
+ProviderAttemptExecutor::ProviderAttemptExecutor(const LogicalModelRouter &router,
+                                                 BudgetedAttemptHandler handler,
+                                                 const ProviderExecutionControls &controls)
+    : m_router(router), m_handler(handler), m_controls(controls)
+{
+}
+
 sylar::http::HttpResult::ptr
 ProviderAttemptExecutor::execute(const GatewayChatRequest &request) const
 {
@@ -417,7 +491,7 @@ sylar::http::HttpResult::ptr ProviderAttemptExecutor::execute(const GatewayChatR
     sylar::http::HttpResult::ptr last_result;
 
     // 按候选 provider 顺序逐个尝试。
-    // 当前没有做负载均衡、随机、权重、熔断过滤。
+    // 当前没有做负载均衡、随机和权重。
     // candidate 顺序就是实际尝试顺序。
     for (const auto &candidate : candidates)
     {
@@ -426,7 +500,53 @@ sylar::http::HttpResult::ptr ProviderAttemptExecutor::execute(const GatewayChatR
             return MakeBudgetExhaustedError(budget);
         }
 
-        last_result = m_handler(candidate, request, budget);
+        const std::string endpoint_key = candidate.name;
+        sylar::http::HttpConcurrencyLimitGuard::ptr limit_guard =
+            m_controls.limiter ? m_controls.limiter->tryAcquire(endpoint_key) : nullptr;
+        if (m_controls.limiter && !limit_guard)
+        {
+            last_result = MakeProtectionError(sylar::http::HttpResult::Error::RATE_LIMITED,
+                                              "provider concurrency limited");
+            if (!shouldTryNextCandidate(last_result))
+            {
+                return last_result;
+            }
+            continue;
+        }
+
+        sylar::http::HttpCircuitBreakerGuard::ptr circuit_guard =
+            m_controls.circuit_breaker ? m_controls.circuit_breaker->tryAcquire(endpoint_key)
+                                       : nullptr;
+        if (m_controls.circuit_breaker && !circuit_guard)
+        {
+            last_result = MakeProtectionError(sylar::http::HttpResult::Error::CIRCUIT_OPEN,
+                                              "provider circuit open");
+            if (!shouldTryNextCandidate(last_result))
+            {
+                return last_result;
+            }
+            continue;
+        }
+
+        try
+        {
+            last_result = m_handler(candidate, request, budget);
+        }
+        catch (const std::exception &ex)
+        {
+            last_result =
+                MakeHandlerExceptionError(std::string("provider attempt handler exception: ") +
+                                          ex.what());
+        }
+        catch (...)
+        {
+            last_result = MakeHandlerExceptionError("provider attempt handler exception");
+        }
+
+        if (m_controls.circuit_breaker && circuit_guard)
+        {
+            ReportBreakerResult(m_controls.circuit_breaker, endpoint_key, last_result);
+        }
         if (!shouldTryNextCandidate(last_result))
         {
             return last_result;

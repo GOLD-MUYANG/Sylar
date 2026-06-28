@@ -136,6 +136,18 @@ sylar_add_executable(test_ai_gateway_real_provider
     sylar "${LIBS};${JSONCPP_LIBRARIES}")
 target_include_directories(test_ai_gateway_real_provider PRIVATE ${JSONCPP_INCLUDE_DIRS})
 target_compile_options(test_ai_gateway_real_provider PRIVATE ${JSONCPP_CFLAGS_OTHER})
+sylar_add_executable(test_ai_gateway_real_provider_smoke
+    "tests/test_ai_gateway_real_provider_smoke.cc;modules/ai_gateway/ai_gateway_protocol.cc;modules/ai_gateway/real_provider_gateway.cc;modules/ai_gateway/ai_provider_adapter.cc;modules/ai_gateway/real_provider_smoke.cc"
+    sylar "${LIBS};${JSONCPP_LIBRARIES}")
+target_include_directories(test_ai_gateway_real_provider_smoke PRIVATE ${JSONCPP_INCLUDE_DIRS})
+target_compile_options(test_ai_gateway_real_provider_smoke PRIVATE ${JSONCPP_CFLAGS_OTHER})
+set_target_properties(test_ai_gateway_real_provider_smoke PROPERTIES EXCLUDE_FROM_ALL TRUE)
+sylar_add_executable(ai_gateway_real_provider_smoke
+    "examples/ai_gateway_real_provider_smoke.cc;modules/ai_gateway/ai_gateway_protocol.cc;modules/ai_gateway/real_provider_gateway.cc;modules/ai_gateway/ai_provider_adapter.cc;modules/ai_gateway/real_provider_smoke.cc"
+    sylar "${LIBS};${JSONCPP_LIBRARIES}")
+target_include_directories(ai_gateway_real_provider_smoke PRIVATE ${JSONCPP_INCLUDE_DIRS})
+target_compile_options(ai_gateway_real_provider_smoke PRIVATE ${JSONCPP_CFLAGS_OTHER})
+set_target_properties(ai_gateway_real_provider_smoke PROPERTIES EXCLUDE_FROM_ALL TRUE)
 sylar_add_executable(test_ai_gateway_status
     "tests/test_ai_gateway_status.cc;modules/ai_gateway/ai_gateway_status_servlet.cc;modules/ai_gateway/ai_gateway_upstream.cc"
     sylar "${LIBS};${JSONCPP_LIBRARIES}")
