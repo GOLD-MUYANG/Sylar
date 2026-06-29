@@ -1,5 +1,7 @@
 #include "real_provider_smoke.h"
 
+#include "sylar/iomanager.h"
+
 #include <cstdlib>
 #include <ostream>
 #include <sstream>
@@ -127,6 +129,45 @@ int ExtractHttpStatus(const sylar::http::HttpResult::ptr &result)
     return result->attempt.http_status;
 }
 
+RealProviderSmokeResult RunRealProviderSmokeAttempt(const RealProviderSmokeConfig &config,
+                                                    const ProviderHttpPost &post)
+{
+    std::string error;
+    LogicalModelRouter router;
+    if (!router.addCandidate(BuildSmokeCandidate(config), &error))
+    {
+        return MakeResult(RealProviderSmokeStatus::CONFIG_ERROR, error);
+    }
+
+    RequestExecutionBudget budget(config.request_deadline_ms, 1, "manual-real-provider-smoke");
+    ProviderAttemptExecutor executor(
+        router, CreateOpenAICompatibleAttemptHandler(post, BuildSmokeRequestOptions(config)));
+    sylar::http::HttpResult::ptr result = executor.execute(BuildSmokeChatRequest(config), &budget);
+
+    const uint32_t attempts = budget.consumedAttempts();
+    const int http_status = ExtractHttpStatus(result);
+    if (!result)
+    {
+        return MakeResult(RealProviderSmokeStatus::REQUEST_FAILED,
+                          "real provider smoke failed: missing result", attempts, http_status);
+    }
+    if (result->result == (int)sylar::http::HttpResult::Error::OK && result->response &&
+        result->response->getStatus() == sylar::http::HttpStatus::OK)
+    {
+        // printf("%s", result->response->getBody().c_str());
+        return MakeResult(RealProviderSmokeStatus::OK, result->response->getBody().c_str(),
+                          attempts, http_status);
+    }
+
+    std::ostringstream os;
+    os << "real provider smoke failed";
+    if (!result->error.empty())
+    {
+        os << ": " << result->error;
+    }
+    return MakeResult(RealProviderSmokeStatus::REQUEST_FAILED, os.str(), attempts, http_status);
+}
+
 } // namespace
 
 const char *RealProviderSmokeStatusToString(RealProviderSmokeStatus status)
@@ -169,8 +210,7 @@ RealProviderSmokeConfig LoadRealProviderSmokeConfigFromEnv()
         GetEnvString("SYLAR_AI_GATEWAY_REAL_COMPATIBILITY_KEY", config.compatibility_key);
     config.prompt = GetEnvString("SYLAR_AI_GATEWAY_REAL_PROMPT", config.prompt);
     config.request_deadline_ms =
-        GetEnvUint64("SYLAR_AI_GATEWAY_REAL_REQUEST_DEADLINE_MS",
-                     config.request_deadline_ms);
+        GetEnvUint64("SYLAR_AI_GATEWAY_REAL_REQUEST_DEADLINE_MS", config.request_deadline_ms);
     config.tls_server_name =
         GetEnvString("SYLAR_AI_GATEWAY_REAL_TLS_SERVER_NAME", config.tls_server_name);
     config.tls_ca_file = GetEnvString("SYLAR_AI_GATEWAY_REAL_TLS_CA_FILE", config.tls_ca_file);
@@ -205,38 +245,20 @@ RealProviderSmokeResult RunRealProviderSmoke(const RealProviderSmokeConfig &conf
                           "provider API key env missing: " + config.api_key_env);
     }
 
-    LogicalModelRouter router;
-    if (!router.addCandidate(BuildSmokeCandidate(config), &error))
+    if (sylar::IOManager::GetThis())
     {
-        return MakeResult(RealProviderSmokeStatus::CONFIG_ERROR, error);
+        return RunRealProviderSmokeAttempt(config, post);
     }
 
-    RequestExecutionBudget budget(config.request_deadline_ms, 1, "manual-real-provider-smoke");
-    ProviderAttemptExecutor executor(
-        router, CreateOpenAICompatibleAttemptHandler(post, BuildSmokeRequestOptions(config)));
-    sylar::http::HttpResult::ptr result = executor.execute(BuildSmokeChatRequest(config), &budget);
-
-    const uint32_t attempts = budget.consumedAttempts();
-    const int http_status = ExtractHttpStatus(result);
-    if (!result)
     {
-        return MakeResult(RealProviderSmokeStatus::REQUEST_FAILED,
-                          "real provider smoke failed: missing result", attempts, http_status);
+        RealProviderSmokeResult result;
+        {
+            sylar::IOManager iom(1, true, "real-provider-smoke");
+            iom.schedule([&result, &config, &post]()
+                         { result = RunRealProviderSmokeAttempt(config, post); });
+        }
+        return result;
     }
-    if (result->result == (int)sylar::http::HttpResult::Error::OK && result->response &&
-        result->response->getStatus() == sylar::http::HttpStatus::OK)
-    {
-        return MakeResult(RealProviderSmokeStatus::OK,
-                          "real provider smoke succeeded", attempts, http_status);
-    }
-
-    std::ostringstream os;
-    os << "real provider smoke failed";
-    if (!result->error.empty())
-    {
-        os << ": " << result->error;
-    }
-    return MakeResult(RealProviderSmokeStatus::REQUEST_FAILED, os.str(), attempts, http_status);
 }
 
 RealProviderSmokeResult RunRealProviderSmoke(const RealProviderSmokeConfig &config)

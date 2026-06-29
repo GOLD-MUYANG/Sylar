@@ -1,5 +1,7 @@
 #include "modules/ai_gateway/real_provider_smoke.h"
 
+#include "sylar/hook.h"
+#include "sylar/iomanager.h"
 #include "sylar/log.h"
 
 #include <atomic>
@@ -170,6 +172,36 @@ void test_enabled_smoke_uses_single_attempt_with_fake_transport()
     EXPECT_TRUE(result.message.find("reply pong") == std::string::npos);
 }
 
+void test_enabled_smoke_runs_provider_attempt_inside_iomanager()
+{
+    ClearSmokeEnv();
+    setenv("SYLAR_AI_GATEWAY_REAL_SMOKE", "1", 1);
+    setenv("SYLAR_AI_GATEWAY_REAL_BASE_URL", "https://api.provider.example", 1);
+    setenv("SYLAR_AI_GATEWAY_REAL_UPSTREAM_MODEL", "provider-model", 1);
+    setenv("SYLAR_AI_GATEWAY_REAL_API_KEY_ENV", "REAL_PROVIDER_SMOKE_KEY", 1);
+    setenv("REAL_PROVIDER_SMOKE_KEY", "secret-value", 1);
+
+    sylar::ai_gateway::RealProviderSmokeConfig config =
+        sylar::ai_gateway::LoadRealProviderSmokeConfigFromEnv();
+
+    bool saw_iomanager = false;
+    bool saw_hook = false;
+    sylar::ai_gateway::RealProviderSmokeResult result =
+        sylar::ai_gateway::RunRealProviderSmoke(
+            config,
+            [&saw_iomanager, &saw_hook](const sylar::ai_gateway::ProviderCandidate &,
+                                        const sylar::ai_gateway::ProviderHttpRequest &)
+            {
+                saw_iomanager = sylar::IOManager::GetThis() != nullptr;
+                saw_hook = sylar::is_hook_enable();
+                return OpenAICompatibleOkResult();
+            });
+
+    EXPECT_EQ(result.status, sylar::ai_gateway::RealProviderSmokeStatus::OK);
+    EXPECT_TRUE(saw_iomanager);
+    EXPECT_TRUE(saw_hook);
+}
+
 } // namespace
 
 int main()
@@ -177,6 +209,7 @@ int main()
     test_default_guard_skips_without_network();
     test_missing_api_key_env_does_not_call_provider();
     test_enabled_smoke_uses_single_attempt_with_fake_transport();
+    test_enabled_smoke_runs_provider_attempt_inside_iomanager();
 
     if (g_failures.load() != 0)
     {
