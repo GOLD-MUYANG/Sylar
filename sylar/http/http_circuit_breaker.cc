@@ -78,22 +78,11 @@ HttpCircuitBreakerGuard::ptr HttpCircuitBreaker::tryAcquire(const std::string &e
     // 此时不能立刻放请求，要先判断冷却时间是否结束。
     if (state.state == HttpCircuitBreakerState::OPEN)
     {
-        // now_ms < openedAtMs 是防御性判断：
-        // 如果系统时间异常回拨，就继续拒绝请求。
-        //
-        // now_ms - openedAtMs < open_timeout_ms：
-        // 表示还没过冷却时间，继续拒绝。
-        if (now_ms < state.openedAtMs || now_ms - state.openedAtMs < m_options.open_timeout_ms)
+        refreshOpenState(state, now_ms);
+        if (state.state == HttpCircuitBreakerState::OPEN)
         {
             return nullptr;
         }
-
-        // 冷却时间到了，进入 HALF_OPEN。
-        // 不是直接恢复 CLOSED，而是先放少量请求探测。
-        state.state = HttpCircuitBreakerState::HALF_OPEN;
-
-        // 刚进入 HALF_OPEN，没有正在进行的探测请求。
-        state.halfOpenActive = 0;
     }
 
     // HALF_OPEN 状态只允许有限数量的探测请求通过。
@@ -211,7 +200,9 @@ HttpCircuitBreakerState HttpCircuitBreaker::getState(const std::string &endpoint
     }
 
     MutexType::Lock lock(m_mutex);
-    return getOrCreateState(endpoint_key).state;
+    EndpointState &state = getOrCreateState(endpoint_key);
+    refreshOpenState(state, sylar::GetCurrentMS());
+    return state.state;
 }
 
 /**
@@ -317,6 +308,24 @@ void HttpCircuitBreaker::open(EndpointState &state, uint64_t now_ms)
     state.openedAtMs = now_ms;
 
     // OPEN 状态下没有探测请求。
+    state.halfOpenActive = 0;
+}
+
+void HttpCircuitBreaker::refreshOpenState(EndpointState &state, uint64_t now_ms)
+{
+    if (state.state != HttpCircuitBreakerState::OPEN)
+    {
+        return;
+    }
+    // 系统时间回拨或冷却时间未到时，继续保持 OPEN。
+    if (now_ms < state.openedAtMs || now_ms - state.openedAtMs < m_options.open_timeout_ms)
+    {
+        return;
+    }
+
+    // 冷却时间到了，进入 HALF_OPEN。
+    // 这里不占用探测名额；真正发请求时仍由 tryAcquire() 递增 halfOpenActive。
+    state.state = HttpCircuitBreakerState::HALF_OPEN;
     state.halfOpenActive = 0;
 }
 

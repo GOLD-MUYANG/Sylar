@@ -2,6 +2,7 @@
 #include "ai_gateway_servlet.h"
 #include "ai_gateway_status_servlet.h"
 #include "ai_gateway_upstream.h"
+#include "real_provider_runtime.h"
 
 #include "sylar/application.h"
 #include "sylar/env.h"
@@ -192,6 +193,30 @@ AiGatewayConfig LoadConfig()
     return config;
 }
 
+RealProviderRuntimeConfig LoadRealProviderConfig()
+{
+    RealProviderRuntimeConfig config;
+    const std::string file = sylar::EnvMgr::GetInstance()->getConfigPath() + "/ai_gateway.yml";
+
+    try
+    {
+        YAML::Node root = YAML::LoadFile(file);
+        std::string error;
+        if (!LoadRealProviderRuntimeConfig(root, &config, &error))
+        {
+            SYLAR_LOG_ERROR(g_logger) << "load real provider config failed error=" << error;
+            config.enabled = false;
+        }
+    }
+    catch (const std::exception &e)
+    {
+        SYLAR_LOG_ERROR(g_logger) << "load real provider config failed file=" << file
+                                  << " error=" << e.what();
+    }
+
+    return config;
+}
+
 // AI Gateway 模块
 // 这个类会被框架通过 CreateModule() 动态创建
 class AiGatewayModule : public sylar::Module
@@ -208,19 +233,27 @@ public:
     {
         // 读取 AI Gateway 配置
         const AiGatewayConfig config = LoadConfig();
+        const RealProviderRuntimeConfig real_config = LoadRealProviderConfig();
 
         // 未启用时直接返回 true
         // 表示模块没有启动，但不是错误
-        if (!config.enabled)
+        if (!config.enabled && !real_config.enabled)
         {
             SYLAR_LOG_INFO(g_logger) << "ai gateway module disabled";
             return true;
         }
 
-        // 启用模块时，server_name 和至少一个 provider 都必须配置。
-        if (config.server_name.empty() || config.providers.empty())
+        // 启用 Mock 路径时，server_name 和至少一个 provider 都必须配置。
+        if (config.enabled && (config.server_name.empty() || config.providers.empty()))
         {
             SYLAR_LOG_ERROR(g_logger) << "ai gateway requires server_name and providers";
+            return false;
+        }
+        if (real_config.enabled &&
+            (real_config.server_name.empty() || real_config.providers.empty()))
+        {
+            SYLAR_LOG_ERROR(g_logger)
+                << "ai gateway real providers require server_name and providers";
             return false;
         }
 
@@ -228,29 +261,35 @@ public:
         sylar::Application *application = sylar::Application::GetInstance();
 
         // 根据配置里的 server_name 查找已经创建好的 HTTP Server
+        const std::string server_name =
+            real_config.enabled ? real_config.server_name : config.server_name;
         sylar::http::HttpServer::ptr server =
-            application ? application->getHttpServer(config.server_name) : nullptr;
+            application ? application->getHttpServer(server_name) : nullptr;
 
         // 如果找不到对应的 server，说明配置的 server_name 不对，
         // 或者 HTTP Server 还没有在 Application 中注册
         if (!server)
         {
-            SYLAR_LOG_ERROR(g_logger) << "ai gateway server not found name=" << config.server_name;
+            SYLAR_LOG_ERROR(g_logger) << "ai gateway server not found name=" << server_name;
             return false;
         }
 
-        // 由独立组件校验 Provider URL 并创建多实例客户端。
-        std::string upstream_error;
-        sylar::http::HttpLoadBalanceClient::ptr client =
-            CreateLoadBalanceClient(config.providers, config.load_balance, config.upstream_options,
-                                    &upstream_error);
-        if (!client)
+        sylar::http::HttpLoadBalanceClient::ptr client;
+        if (config.enabled)
         {
-            SYLAR_LOG_ERROR(g_logger) << "ai gateway invalid providers error=" << upstream_error;
-            return false;
+            // 由独立组件校验 Provider URL 并创建多实例客户端。
+            std::string upstream_error;
+            client = CreateLoadBalanceClient(config.providers, config.load_balance,
+                                             config.upstream_options, &upstream_error);
+            if (!client)
+            {
+                SYLAR_LOG_ERROR(g_logger) << "ai gateway invalid providers error="
+                                          << upstream_error;
+                return false;
+            }
         }
 
-        if (config.health_check_enabled)
+        if (config.enabled && config.health_check_enabled)
         {
             size_t available = client->checkHealth(
                 config.health_check_path,
@@ -259,27 +298,41 @@ public:
                                      << " total=" << config.providers.size();
         }
 
-        // 构造一个上游 POST 调用函数
+        RealProviderRuntime::ptr real_runtime;
+        if (real_config.enabled)
+        {
+            real_runtime = RealProviderRuntime::Create(real_config, DoProviderHttpPost);
+            if (!real_runtime)
+            {
+                SYLAR_LOG_ERROR(g_logger) << "ai gateway real provider runtime create failed";
+                return false;
+            }
+        }
+
+        // 构造一个 Mock 上游 POST 调用函数
         // AiGatewayServlet 不直接依赖 HttpClient，而是通过这个函数回调调用上游
         //
         // 捕获 client：
         //   保证 servlet 调用时还能访问这个 HTTP 客户端
         //
         // 捕获 config：使用里面的 request_timeout_ms。
-        AiGatewayServlet::UpstreamPost upstream =
-            [client, config](const std::string &body,
-                             sylar::http::HttpLoadBalanceRequestTrace *trace)
+        AiGatewayServlet::UpstreamPost upstream;
+        if (client)
         {
-            // G3 只允许在不同 Provider 间故障转移，不会对同一实例重复提交。
-            // G4 增加单次业务请求的总尝试预算。
-            sylar::http::HttpRetryOptions retry_options;
-            retry_options.retry_non_idempotent = true;
-            retry_options.max_total_attempts = config.max_total_attempts;
-            return client->post(
-                "/v1/chat/completions",
-                sylar::http::HttpRequestOptions::FromTimeout(config.request_deadline_ms),
-                retry_options, {{"Content-Type", "application/json"}}, body, trace);
-        };
+            upstream = [client, config](const std::string &body,
+                                        sylar::http::HttpLoadBalanceRequestTrace *trace)
+            {
+                // G3 只允许在不同 Provider 间故障转移，不会对同一实例重复提交。
+                // G4 增加单次业务请求的总尝试预算。
+                sylar::http::HttpRetryOptions retry_options;
+                retry_options.retry_non_idempotent = true;
+                retry_options.max_total_attempts = config.max_total_attempts;
+                return client->post(
+                    "/v1/chat/completions",
+                    sylar::http::HttpRequestOptions::FromTimeout(config.request_deadline_ms),
+                    retry_options, {{"Content-Type", "application/json"}}, body, trace);
+            };
+        }
 
         // 向目标 HTTP Server 注册 OpenAI Chat Completions 兼容路由
         //
@@ -290,18 +343,38 @@ public:
         //   AiGatewayServlet::handle()
         //
         // handle() 内部会解析请求、调用 upstream、处理上游返回或错误
+        if (real_runtime)
+        {
+            AiGatewayServlet::CompatibleUpstreamPost real_upstream =
+                [real_runtime](const ChatCompletionRequest &request, Json::Value *trace)
+            { return real_runtime->execute(request, trace); };
+            server->getServletDispatch()->addServlet(
+                real_config.route_path,
+                std::make_shared<AiGatewayServlet>(real_upstream, real_config.demo_enabled));
+        }
+        else
+        {
+            server->getServletDispatch()->addServlet(
+                "/v1/chat/completions",
+                std::make_shared<AiGatewayServlet>(upstream, config.demo_trace_enabled));
+        }
+
+        AiGatewayStatusServlet::RealProviderStatusProvider real_status;
+        if (real_runtime)
+        {
+            real_status = [real_runtime]() { return real_runtime->buildStatusJson(); };
+        }
         server->getServletDispatch()->addServlet(
-            "/v1/chat/completions",
-            std::make_shared<AiGatewayServlet>(upstream, config.demo_trace_enabled));
-        server->getServletDispatch()->addServlet(
-            "/internal/status", std::make_shared<AiGatewayStatusServlet>(config.providers, client));
-        if (config.demo_trace_enabled)
+            "/internal/status",
+            std::make_shared<AiGatewayStatusServlet>(config.providers, client, real_status));
+        if (config.demo_trace_enabled || real_config.demo_enabled)
         {
             server->getServletDispatch()->addServlet("/demo",
                                                      std::make_shared<AiGatewayDemoServlet>());
         }
 
-        SYLAR_LOG_INFO(g_logger) << "ai gateway route registered server=" << config.server_name;
+        SYLAR_LOG_INFO(g_logger) << "ai gateway route registered server=" << server_name
+                                 << " real_provider=" << (real_runtime ? "enabled" : "disabled");
         return true;
     }
 };

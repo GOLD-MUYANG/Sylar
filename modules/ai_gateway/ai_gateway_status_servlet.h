@@ -4,6 +4,9 @@
 #include "ai_gateway_upstream.h"
 #include "sylar/http/servlet.h"
 
+#include <functional>
+#include <json/json.h>
+
 namespace sylar
 {
 namespace ai_gateway
@@ -14,9 +17,13 @@ class AiGatewayStatusServlet : public sylar::http::Servlet
 {
 public:
     typedef std::shared_ptr<AiGatewayStatusServlet> ptr;
+    typedef std::function<Json::Value()> RealProviderStatusProvider;
 
     AiGatewayStatusServlet(const std::vector<AiGatewayProviderConfig> &providers,
                            sylar::http::HttpLoadBalanceClient::ptr client);
+    AiGatewayStatusServlet(const std::vector<AiGatewayProviderConfig> &providers,
+                           sylar::http::HttpLoadBalanceClient::ptr client,
+                           RealProviderStatusProvider real_provider_status);
 
     int32_t handle(sylar::http::HttpRequest::ptr request,
                    sylar::http::HttpResponse::ptr response,
@@ -28,6 +35,7 @@ private:
 private:
     std::vector<AiGatewayProviderConfig> m_providers;
     sylar::http::HttpLoadBalanceClient::ptr m_client;
+    RealProviderStatusProvider m_realProviderStatus;
 };
 
 } // namespace ai_gateway

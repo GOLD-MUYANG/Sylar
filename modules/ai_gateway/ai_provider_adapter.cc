@@ -188,9 +188,24 @@ bool OpenAICompatibleProviderAdapter::buildChatRequest(
         root["messages"].append(item);
     }
 
+    sylar::http::HttpRequestOptions request_options = options;
+    if (!candidate.tls_server_name.empty())
+    {
+        request_options.tls_server_name = candidate.tls_server_name;
+    }
+    if (!candidate.tls_ca_file.empty())
+    {
+        request_options.tls_ca_file = candidate.tls_ca_file;
+    }
+    if (!candidate.tls_ca_path.empty())
+    {
+        request_options.tls_ca_path = candidate.tls_ca_path;
+    }
+    request_options.tls_verify_peer = candidate.tls_verify_peer;
+
     ProviderHttpRequest built;
     built.url = JoinUrl(candidate.base_url, candidate.chat_path);
-    built.options = options;
+    built.options = request_options;
     built.headers["Authorization"] = "Bearer " + api_key;
     built.headers["Content-Type"] = "application/json";
     built.headers["Accept"] = "application/json";

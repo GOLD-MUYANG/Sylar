@@ -93,6 +93,11 @@ struct ProviderCandidate
     std::string upstream_model;
     std::string api_key_env;
     std::string compatibility_key;
+    std::string tls_server_name;
+    std::string tls_ca_file;
+    std::string tls_ca_path;
+    bool tls_verify_peer = true;
+    uint32_t weight = 1;
     bool enabled = false;
 };
 

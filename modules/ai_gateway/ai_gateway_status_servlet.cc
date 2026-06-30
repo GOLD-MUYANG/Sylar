@@ -49,7 +49,16 @@ std::string DumpJson(const Json::Value &root)
 AiGatewayStatusServlet::AiGatewayStatusServlet(
     const std::vector<AiGatewayProviderConfig> &providers,
     sylar::http::HttpLoadBalanceClient::ptr client)
-    : Servlet("ai_gateway_status"), m_providers(providers), m_client(client)
+    : AiGatewayStatusServlet(providers, client, RealProviderStatusProvider())
+{
+}
+
+AiGatewayStatusServlet::AiGatewayStatusServlet(
+    const std::vector<AiGatewayProviderConfig> &providers,
+    sylar::http::HttpLoadBalanceClient::ptr client,
+    RealProviderStatusProvider real_provider_status)
+    : Servlet("ai_gateway_status"), m_providers(providers), m_client(client),
+      m_realProviderStatus(real_provider_status)
 {
 }
 
@@ -72,6 +81,10 @@ std::string AiGatewayStatusServlet::buildStatusBody() const
     if (!m_client)
     {
         root["providers"] = providers;
+        if (m_realProviderStatus)
+        {
+            root["real_providers"] = m_realProviderStatus();
+        }
         return DumpJson(root);
     }
 
@@ -96,6 +109,10 @@ std::string AiGatewayStatusServlet::buildStatusBody() const
     }
 
     root["providers"] = providers;
+    if (m_realProviderStatus)
+    {
+        root["real_providers"] = m_realProviderStatus();
+    }
     return DumpJson(root);
 }
 

@@ -108,6 +108,32 @@ void test_open_circuit_allows_half_open_probe_after_timeout()
     EXPECT_TRUE(breaker->tryAcquire("endpoint-a") != nullptr);
 }
 
+void test_get_state_reports_half_open_after_open_timeout()
+{
+    sylar::http::HttpCircuitBreakerOptions options;
+    options.enabled = true;
+    options.consecutive_failure_threshold = 1;
+    options.open_timeout_ms = 20;
+
+    auto breaker = sylar::http::HttpCircuitBreaker::Create(options);
+    EXPECT_TRUE(breaker != nullptr);
+    if (!breaker)
+    {
+        return;
+    }
+
+    EXPECT_TRUE(breaker->tryAcquire("endpoint-a") != nullptr);
+    breaker->onRequestComplete("endpoint-a",
+                               make_result(sylar::http::HttpResult::Error::CONNECT_FAIL));
+    EXPECT_EQ((int)breaker->getState("endpoint-a"),
+              (int)sylar::http::HttpCircuitBreakerState::OPEN);
+
+    usleep(30 * 1000);
+    EXPECT_EQ((int)breaker->getState("endpoint-a"),
+              (int)sylar::http::HttpCircuitBreakerState::HALF_OPEN);
+    EXPECT_TRUE(breaker->tryAcquire("endpoint-a") != nullptr);
+}
+
 void test_half_open_limits_probe_and_reopens_on_failure()
 {
     sylar::http::HttpCircuitBreakerOptions options;
@@ -209,6 +235,7 @@ void run_tests()
 {
     test_consecutive_failures_open_circuit();
     test_open_circuit_allows_half_open_probe_after_timeout();
+    test_get_state_reports_half_open_after_open_timeout();
     test_half_open_limits_probe_and_reopens_on_failure();
     test_failure_rate_opens_circuit();
     test_client_error_status_does_not_count_as_failure();

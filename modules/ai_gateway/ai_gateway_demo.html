@@ -1,405 +1,519 @@
 <!doctype html>
 <html lang="zh-CN" data-source="static-file">
+
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>AI Gateway Demo</title>
-  <style>
-    :root {
-      color-scheme: light;
-      --bg: #f6f7f9;
-      --panel: #ffffff;
-      --text: #17202a;
-      --muted: #5d6b7a;
-      --line: #d8dee8;
-      --blue: #1f6feb;
-      --green: #1a7f37;
-      --red: #cf222e;
-      --amber: #9a6700;
-      --code: #111827;
-    }
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>AI Gateway Demo</title>
+    <style>
+        :root {
+            color-scheme: light;
+            --bg: #f6f7f9;
+            --panel: #ffffff;
+            --text: #17202a;
+            --muted: #5d6b7a;
+            --line: #d8dee8;
+            --blue: #1f6feb;
+            --green: #1a7f37;
+            --red: #cf222e;
+            --amber: #9a6700;
+            --code: #111827;
+        }
 
-    * { box-sizing: border-box; }
+        * {
+            box-sizing: border-box;
+        }
 
-    body {
-      margin: 0;
-      background: var(--bg);
-      color: var(--text);
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      font-size: 16px;
-      line-height: 1.5;
-    }
+        body {
+            margin: 0;
+            background: var(--bg);
+            color: var(--text);
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            font-size: 16px;
+            line-height: 1.5;
+        }
 
-    button, textarea { font: inherit; }
+        button,
+        textarea {
+            font: inherit;
+        }
 
-    .app {
-      width: min(1180px, calc(100vw - 32px));
-      margin: 24px auto;
-    }
+        .app {
+            width: min(1180px, calc(100vw - 32px));
+            margin: 24px auto;
+        }
 
-    .topbar {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 16px;
-      margin-bottom: 16px;
-    }
+        .topbar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 16px;
+            margin-bottom: 16px;
+        }
 
-    h1 {
-      margin: 0;
-      font-size: 24px;
-      font-weight: 700;
-    }
+        h1 {
+            margin: 0;
+            font-size: 24px;
+            font-weight: 700;
+        }
 
-    .subtitle {
-      margin-top: 4px;
-      color: var(--muted);
-      font-size: 14px;
-    }
+        .subtitle {
+            margin-top: 4px;
+            color: var(--muted);
+            font-size: 14px;
+        }
 
-    .actions {
-      display: flex;
-      gap: 8px;
-      flex-wrap: wrap;
-      justify-content: flex-end;
-    }
+        .status-refresh {
+            margin-top: 4px;
+            color: var(--muted);
+            font-size: 13px;
+        }
 
-    .button {
-      min-height: 44px;
-      border: 1px solid var(--line);
-      border-radius: 8px;
-      background: var(--panel);
-      color: var(--text);
-      padding: 0 14px;
-      cursor: pointer;
-      transition: background 160ms ease, border-color 160ms ease;
-    }
+        .actions {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            justify-content: flex-end;
+        }
 
-    .button.primary {
-      background: var(--blue);
-      border-color: var(--blue);
-      color: #ffffff;
-      font-weight: 650;
-    }
+        .button {
+            min-height: 44px;
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            background: var(--panel);
+            color: var(--text);
+            padding: 0 14px;
+            cursor: pointer;
+            transition: background 160ms ease, border-color 160ms ease;
+        }
 
-    .button:disabled {
-      cursor: not-allowed;
-      opacity: 0.65;
-    }
+        .button.primary {
+            background: var(--blue);
+            border-color: var(--blue);
+            color: #ffffff;
+            font-weight: 650;
+        }
 
-    .button:focus-visible, textarea:focus-visible {
-      outline: 3px solid rgba(31, 111, 235, 0.35);
-      outline-offset: 2px;
-    }
+        .button:disabled {
+            cursor: not-allowed;
+            opacity: 0.65;
+        }
 
-    .grid {
-      display: grid;
-      grid-template-columns: 360px 1fr;
-      gap: 16px;
-      align-items: start;
-    }
+        .button:focus-visible,
+        textarea:focus-visible {
+            outline: 3px solid rgba(31, 111, 235, 0.35);
+            outline-offset: 2px;
+        }
 
-    .panel {
-      background: var(--panel);
-      border: 1px solid var(--line);
-      border-radius: 8px;
-      padding: 16px;
-    }
+        .grid {
+            display: grid;
+            grid-template-columns: 360px 1fr;
+            gap: 16px;
+            align-items: start;
+        }
 
-    .panel h2 {
-      margin: 0 0 12px;
-      font-size: 16px;
-    }
+        .panel {
+            background: var(--panel);
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            padding: 16px;
+        }
 
-    .providers {
-      display: grid;
-      grid-template-columns: repeat(3, minmax(0, 1fr));
-      gap: 12px;
-      margin-bottom: 16px;
-    }
+        .panel h2 {
+            margin: 0 0 12px;
+            font-size: 16px;
+        }
 
-    .provider {
-      background: var(--panel);
-      border: 1px solid var(--line);
-      border-left: 4px solid var(--muted);
-      border-radius: 8px;
-      padding: 12px;
-      min-height: 122px;
-    }
+        .providers {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 12px;
+            margin-bottom: 16px;
+        }
 
-    .provider.up { border-left-color: var(--green); }
-    .provider.down { border-left-color: var(--red); }
-    .provider.open { border-left-color: var(--amber); }
+        .provider {
+            background: var(--panel);
+            border: 1px solid var(--line);
+            border-left: 4px solid var(--muted);
+            border-radius: 8px;
+            padding: 12px;
+            min-height: 122px;
+        }
 
-    .provider-name {
-      display: flex;
-      justify-content: space-between;
-      gap: 8px;
-      font-weight: 700;
-    }
+        .provider.up {
+            border-left-color: var(--green);
+        }
 
-    .badge {
-      border-radius: 999px;
-      padding: 2px 8px;
-      font-size: 12px;
-      font-weight: 700;
-      background: #eef2f7;
-      color: var(--muted);
-      white-space: nowrap;
-    }
+        .provider.down {
+            border-left-color: var(--red);
+        }
 
-    .badge.up { background: #dafbe1; color: var(--green); }
-    .badge.down { background: #ffebe9; color: var(--red); }
-    .badge.open { background: #fff8c5; color: var(--amber); }
+        .provider.open {
+            border-left-color: var(--amber);
+        }
 
-    .metric {
-      display: grid;
-      grid-template-columns: 1fr auto;
-      gap: 10px;
-      color: var(--muted);
-      font-size: 13px;
-      margin-top: 8px;
-    }
+        .provider-name {
+            display: flex;
+            justify-content: space-between;
+            gap: 8px;
+            font-weight: 700;
+        }
 
-    textarea {
-      width: 100%;
-      min-height: 170px;
-      resize: vertical;
-      border: 1px solid var(--line);
-      border-radius: 8px;
-      padding: 12px;
-      background: #fbfcfe;
-      color: var(--code);
-      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-      font-size: 13px;
-    }
+        .badge {
+            border-radius: 999px;
+            padding: 2px 8px;
+            font-size: 12px;
+            font-weight: 700;
+            background: #eef2f7;
+            color: var(--muted);
+            white-space: nowrap;
+        }
 
-    pre {
-      margin: 0;
-      overflow: auto;
-      max-height: 300px;
-      background: #0b1220;
-      color: #e6edf3;
-      border-radius: 8px;
-      padding: 12px;
-      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-      font-size: 13px;
-    }
+        .badge.up {
+            background: #dafbe1;
+            color: var(--green);
+        }
 
-    .timeline {
-      display: grid;
-      gap: 10px;
-    }
+        .badge.down {
+            background: #ffebe9;
+            color: var(--red);
+        }
 
-    .attempt {
-      display: grid;
-      grid-template-columns: 28px 1fr auto;
-      gap: 10px;
-      align-items: center;
-      border: 1px solid var(--line);
-      border-radius: 8px;
-      padding: 10px;
-      background: #fbfcfe;
-    }
+        .badge.open {
+            background: #fff8c5;
+            color: var(--amber);
+        }
 
-    .dot {
-      width: 16px;
-      height: 16px;
-      border-radius: 50%;
-      background: var(--muted);
-      justify-self: center;
-    }
+        .metric {
+            display: grid;
+            grid-template-columns: 1fr auto;
+            gap: 10px;
+            color: var(--muted);
+            font-size: 13px;
+            margin-top: 8px;
+        }
 
-    .attempt.success .dot { background: var(--green); }
-    .attempt.failure .dot { background: var(--red); }
-    .attempt.rate_limited .dot, .attempt.circuit_open .dot { background: var(--amber); }
-    .attempt.skipped_down .dot { background: var(--muted); }
+        textarea {
+            width: 100%;
+            min-height: 170px;
+            resize: vertical;
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            padding: 12px;
+            background: #fbfcfe;
+            color: var(--code);
+            font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+            font-size: 13px;
+        }
 
-    .attempt-title {
-      font-weight: 700;
-      word-break: break-word;
-    }
+        pre {
+            margin: 0;
+            overflow: auto;
+            max-height: 300px;
+            background: #0b1220;
+            color: #e6edf3;
+            border-radius: 8px;
+            padding: 12px;
+            font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+            font-size: 13px;
+        }
 
-    .attempt-detail {
-      color: var(--muted);
-      font-size: 13px;
-      word-break: break-word;
-    }
+        .timeline {
+            display: grid;
+            gap: 10px;
+        }
 
-    .summary {
-      display: grid;
-      grid-template-columns: repeat(3, minmax(0, 1fr));
-      gap: 10px;
-      margin-bottom: 12px;
-    }
+        .attempt {
+            display: grid;
+            grid-template-columns: 28px 1fr auto;
+            gap: 10px;
+            align-items: center;
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            padding: 10px;
+            background: #fbfcfe;
+        }
 
-    .summary-item {
-      background: #fbfcfe;
-      border: 1px solid var(--line);
-      border-radius: 8px;
-      padding: 10px;
-    }
+        .dot {
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            background: var(--muted);
+            justify-self: center;
+        }
 
-    .summary-label {
-      color: var(--muted);
-      font-size: 13px;
-    }
+        .attempt.success .dot {
+            background: var(--green);
+        }
 
-    .summary-value {
-      margin-top: 2px;
-      font-weight: 700;
-      word-break: break-word;
-    }
+        .attempt.failure .dot {
+            background: var(--red);
+        }
 
-    .split {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 16px;
-      margin-top: 16px;
-    }
+        .attempt.rate_limited .dot,
+        .attempt.circuit_open .dot {
+            background: var(--amber);
+        }
 
-    .empty {
-      color: var(--muted);
-      border: 1px dashed var(--line);
-      border-radius: 8px;
-      padding: 18px;
-      text-align: center;
-    }
+        .attempt.skipped_down .dot {
+            background: var(--muted);
+        }
 
-    @media (max-width: 900px) {
-      .topbar, .grid, .split {
-        grid-template-columns: 1fr;
-        display: grid;
-      }
+        .attempt-title {
+            font-weight: 700;
+            word-break: break-word;
+        }
 
-      .providers, .summary { grid-template-columns: 1fr; }
+        .attempt-detail {
+            color: var(--muted);
+            font-size: 13px;
+            word-break: break-word;
+        }
 
-      .actions { justify-content: stretch; }
+        .summary {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 10px;
+            margin-bottom: 12px;
+        }
 
-      .button { width: 100%; }
-    }
-  </style>
+        .summary-item {
+            background: #fbfcfe;
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            padding: 10px;
+        }
+
+        .summary-label {
+            color: var(--muted);
+            font-size: 13px;
+        }
+
+        .summary-value {
+            margin-top: 2px;
+            font-weight: 700;
+            word-break: break-word;
+        }
+
+        .split {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 16px;
+            margin-top: 16px;
+        }
+
+        .empty {
+            color: var(--muted);
+            border: 1px dashed var(--line);
+            border-radius: 8px;
+            padding: 18px;
+            text-align: center;
+        }
+
+        @media (max-width: 900px) {
+
+            .topbar,
+            .grid,
+            .split {
+                grid-template-columns: 1fr;
+                display: grid;
+            }
+
+            .providers,
+            .summary {
+                grid-template-columns: 1fr;
+            }
+
+            .actions {
+                justify-content: stretch;
+            }
+
+            .button {
+                width: 100%;
+            }
+        }
+    </style>
 </head>
+
 <body>
-  <main class="app">
-    <div class="topbar">
-      <div>
-        <h1>AI Gateway Demo</h1>
-        <div class="subtitle">A/B 正常，C 配置存在但不启动；请求会展示网关的本次尝试链路。</div>
-      </div>
-      <div class="actions">
-        <button class="button" id="refreshStatus" type="button">刷新状态</button>
-        <button class="button primary" id="sendRequest" type="button">发送请求</button>
-      </div>
-    </div>
+    <main class="app">
+        <div class="topbar">
+            <div>
+                <h1>AI Gateway Demo</h1>
+                <div class="subtitle">左侧发送 Chat Completions 请求，右侧展示 Provider 状态和本次请求过程。</div>
+                <div class="status-refresh" id="lastStatusRefresh">状态尚未刷新</div>
+            </div>
+            <div class="actions">
+                <button class="button" id="refreshStatus" type="button">刷新状态</button>
+                <button class="button primary" id="sendRequest" type="button">发送请求</button>
+            </div>
+        </div>
 
-    <section class="providers" id="providers"></section>
+        <section class="providers" id="providers"></section>
 
-    <section class="grid">
-      <div class="panel">
-        <h2>请求内容</h2>
-        <textarea id="requestBody" spellcheck="false">{
-  "model": "demo-chat",
+        <section class="grid">
+            <div class="panel">
+                <h2>请求内容</h2>
+                <textarea id="requestBody" spellcheck="false">{
+  "model": "general-chat",
   "messages": [
     {
       "role": "user",
-      "content": "解释熔断"
+      "content": "返回ok"
     }
   ]
 }</textarea>
-      </div>
+            </div>
 
-      <div class="panel">
-        <h2>本次请求过程</h2>
-        <div class="summary" id="summary"></div>
-        <div class="timeline" id="timeline">
-          <div class="empty">点击“发送请求”后显示 provider 尝试顺序和结果。</div>
-        </div>
-      </div>
-    </section>
+            <div class="panel">
+                <h2>本次请求过程</h2>
+                <div class="summary" id="summary"></div>
+                <div class="timeline" id="timeline">
+                    <div class="empty">点击“发送请求”后显示 provider 尝试顺序和结果。</div>
+                </div>
+            </div>
+        </section>
 
-    <section class="split">
-      <div class="panel">
-        <h2>响应 JSON</h2>
-        <pre id="responseJson">{}</pre>
-      </div>
-      <div class="panel">
-        <h2>状态 JSON</h2>
-        <pre id="statusJson">{}</pre>
-      </div>
-    </section>
-  </main>
+        <section class="split">
+            <div class="panel">
+                <h2>响应 JSON</h2>
+                <pre id="responseJson">{}</pre>
+            </div>
+            <div class="panel">
+                <h2>状态 JSON</h2>
+                <pre id="statusJson">{}</pre>
+            </div>
+        </section>
+    </main>
 
-  <script>
-    const providersEl = document.getElementById('providers');
-    const summaryEl = document.getElementById('summary');
-    const timelineEl = document.getElementById('timeline');
-    const requestBodyEl = document.getElementById('requestBody');
-    const responseJsonEl = document.getElementById('responseJson');
-    const statusJsonEl = document.getElementById('statusJson');
-    const sendButton = document.getElementById('sendRequest');
-    const refreshButton = document.getElementById('refreshStatus');
-    let providerByEndpoint = new Map();
+    <script>
+        const providersEl = document.getElementById('providers');
+        const summaryEl = document.getElementById('summary');
+        const timelineEl = document.getElementById('timeline');
+        const requestBodyEl = document.getElementById('requestBody');
+        const responseJsonEl = document.getElementById('responseJson');
+        const statusJsonEl = document.getElementById('statusJson');
+        const lastStatusRefreshEl = document.getElementById('lastStatusRefresh');
+        const sendButton = document.getElementById('sendRequest');
+        const refreshButton = document.getElementById('refreshStatus');
+        let providerByEndpoint = new Map();
+        let statusRefreshInFlight = null;
 
-    function pretty(value) {
-      return JSON.stringify(value, null, 2);
-    }
+        function pretty(value) {
+            return JSON.stringify(value, null, 2);
+        }
 
-    function classForProvider(provider) {
-      if (provider.circuit_breaker === 'OPEN') {
-        return 'open';
-      }
-      return provider.health === 'DOWN' ? 'down' : 'up';
-    }
+        function displayStateForProvider(provider) {
+            if (provider.circuit_breaker === 'OPEN') {
+                return { label: 'DOWN', className: 'down' };
+            }
+            if (provider.circuit_breaker === 'HALF_OPEN') {
+                return { label: 'PROBING', className: 'open' };
+            }
+            if (provider.health === 'DOWN') {
+                return { label: 'DOWN', className: 'down' };
+            }
+            return { label: provider.health || 'UNKNOWN', className: 'up' };
+        }
 
-    function renderProviders(status) {
-      const providers = Array.isArray(status.providers) ? status.providers : [];
-      providerByEndpoint = new Map(providers.map((provider) => [provider.endpoint, provider]));
-      providersEl.innerHTML = providers.map((provider) => {
-        const cls = classForProvider(provider);
-        return `
+        function classForProvider(provider) {
+            return displayStateForProvider(provider).className;
+        }
+
+        function renderProviders(status) {
+            const realProviders = status.real_providers && Array.isArray(status.real_providers.providers)
+                ? status.real_providers.providers
+                : [];
+            const providers = realProviders.length > 0
+                ? realProviders
+                : (Array.isArray(status.providers) ? status.providers : []);
+            providerByEndpoint = new Map(providers.map((provider) => [provider.endpoint, provider]));
+            providersEl.innerHTML = providers.map((provider) => {
+                const displayState = displayStateForProvider(provider);
+                const cls = displayState.className;
+                return `
           <article class="provider ${cls}">
             <div class="provider-name">
               <span>${provider.name || provider.endpoint}</span>
-              <span class="badge ${cls}">${provider.health || 'UNKNOWN'}</span>
+              <span class="badge ${cls}">${displayState.label}</span>
             </div>
             <div class="metric"><span>endpoint</span><strong>${provider.endpoint || '-'}</strong></div>
+            <div class="metric"><span>model</span><strong>${provider.logical_model || provider.upstream_model || '-'}</strong></div>
             <div class="metric"><span>breaker</span><strong>${provider.circuit_breaker || '-'}</strong></div>
             <div class="metric"><span>success / failure</span><strong>${provider.success_count || 0} / ${provider.failure_count || 0}</strong></div>
           </article>
         `;
-      }).join('');
-    }
+            }).join('');
+        }
 
-    function renderSummary(httpStatus, latencyMs, trace) {
-      const attempts = trace && Array.isArray(trace.attempts) ? trace.attempts.length : 0;
-      const final = trace && trace.attempts && trace.attempts[attempts - 1]
-        ? trace.attempts[attempts - 1].outcome
-        : '-';
-      summaryEl.innerHTML = `
+        function renderRefreshTime() {
+            lastStatusRefreshEl.textContent = `状态刷新 ${new Date().toLocaleTimeString()}`;
+        }
+
+        function renderSummary(httpStatus, latencyMs, trace) {
+            const events = trace && Array.isArray(trace.events) ? trace.events : [];
+            const realAttempts = events.filter((event) => event.stage === 'attempt_result');
+            const mockAttempts = trace && Array.isArray(trace.attempts) ? trace.attempts : [];
+            const attempts = realAttempts.length || mockAttempts.length;
+            const final = realAttempts.length > 0
+                ? (realAttempts[realAttempts.length - 1].provider_error_category || 'none')
+                : mockAttempts[attempts - 1]
+                    ? mockAttempts[attempts - 1].outcome
+                    : '-';
+            summaryEl.innerHTML = `
         <div class="summary-item"><div class="summary-label">HTTP 状态</div><div class="summary-value">${httpStatus}</div></div>
         <div class="summary-item"><div class="summary-label">耗时</div><div class="summary-value">${latencyMs} ms</div></div>
         <div class="summary-item"><div class="summary-label">尝试次数</div><div class="summary-value">${attempts} (${final})</div></div>
       `;
-    }
+        }
 
-    function renderTrace(trace) {
-      const attempts = trace && Array.isArray(trace.attempts) ? trace.attempts : [];
-      if (attempts.length === 0) {
-        timelineEl.innerHTML = '<div class="empty">响应中没有 trace；请确认示例配置已开启 demo_trace_enabled。</div>';
-        return;
-      }
+        function renderTrace(trace) {
+            const realEvents = trace && Array.isArray(trace.events) ? trace.events : [];
+            if (realEvents.length > 0) {
+                timelineEl.innerHTML = realEvents.map((event, index) => {
+                    const detail = [
+                        event.model ? `model=${event.model}` : '',
+                        event.provider ? `provider=${event.provider}` : '',
+                        event.attempt_phase ? `phase=${event.attempt_phase}` : '',
+                        event.provider_error_category ? `category=${event.provider_error_category}` : '',
+                        typeof event.try_next_candidate === 'boolean' ? `try_next=${event.try_next_candidate}` : '',
+                        typeof event.http_status === 'number' ? `http=${event.http_status}` : '',
+                        typeof event.consumed_attempts === 'number' ? `attempts=${event.consumed_attempts}` : '',
+                        typeof event.remaining_deadline_ms === 'number' ? `remaining_ms=${event.remaining_deadline_ms}` : ''
+                    ].filter(Boolean).join(' | ');
+                    const cls = event.provider_error_category && event.provider_error_category !== 'none'
+                        ? 'failure'
+                        : 'success';
+                    return `
+            <div class="attempt ${cls}">
+              <div class="dot" aria-hidden="true"></div>
+              <div>
+                <div class="attempt-title">${index + 1}. ${event.stage || '-'}</div>
+                <div class="attempt-detail">${detail || '-'}</div>
+              </div>
+              <span class="badge ${cls}">${event.stage || '-'}</span>
+            </div>
+          `;
+                }).join('');
+                return;
+            }
 
-      timelineEl.innerHTML = attempts.map((attempt, index) => {
-        const provider = providerByEndpoint.get(attempt.endpoint);
-        const name = provider ? provider.name : attempt.endpoint;
-        const detail = [
-          `endpoint=${attempt.endpoint || '-'}`,
-          `result=${attempt.result}`,
-          `http=${attempt.http_status || 0}`,
-          attempt.reason ? `reason=${attempt.reason}` : ''
-        ].filter(Boolean).join(' | ');
-        return `
+            const attempts = trace && Array.isArray(trace.attempts) ? trace.attempts : [];
+            if (attempts.length === 0) {
+                timelineEl.innerHTML = '<div class="empty">响应中没有 trace；请确认示例配置已开启 demo trace。</div>';
+                return;
+            }
+
+            timelineEl.innerHTML = attempts.map((attempt, index) => {
+                const provider = providerByEndpoint.get(attempt.endpoint);
+                const name = provider ? provider.name : attempt.endpoint;
+                const detail = [
+                    `endpoint=${attempt.endpoint || '-'}`,
+                    `result=${attempt.result}`,
+                    `http=${attempt.http_status || 0}`,
+                    attempt.reason ? `reason=${attempt.reason}` : ''
+                ].filter(Boolean).join(' | ');
+                return `
           <div class="attempt ${attempt.outcome || ''}">
             <div class="dot" aria-hidden="true"></div>
             <div>
@@ -409,64 +523,95 @@
             <span class="badge ${attempt.outcome || ''}">${attempt.outcome || '-'}</span>
           </div>
         `;
-      }).join('');
-    }
+            }).join('');
+        }
 
-    async function refreshStatus() {
-      const response = await fetch('/internal/status', { cache: 'no-store' });
-      const status = await response.json();
-      statusJsonEl.textContent = pretty(status);
-      renderProviders(status);
-      return status;
-    }
+        async function refreshStatus(quiet = false) {
+            if (statusRefreshInFlight) {
+                return statusRefreshInFlight;
+            }
+            if (!quiet) {
+                refreshButton.disabled = true;
+            }
 
-    async function sendRequest() {
-      sendButton.disabled = true;
-      sendButton.textContent = '请求中';
-      const started = performance.now();
-      let trace = { attempts: [] };
-      try {
-        await refreshStatus();
-        const response = await fetch('/v1/chat/completions', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'X-Ai-Gateway-Demo-Trace': '1'
-          },
-          body: requestBodyEl.value
+            statusRefreshInFlight = (async () => {
+                const response = await fetch('/internal/status', { cache: 'no-store' });
+                const status = await response.json();
+                statusJsonEl.textContent = pretty(status);
+                renderProviders(status);
+                renderRefreshTime();
+                return status;
+            })();
+
+            try {
+                return await statusRefreshInFlight;
+            } finally {
+                statusRefreshInFlight = null;
+                if (!quiet) {
+                    refreshButton.disabled = false;
+                }
+            }
+        }
+
+        async function refreshStatusQuietly() {
+            try {
+                await refreshStatus(true);
+            } catch (error) {
+                statusJsonEl.textContent = pretty({ error: String(error) });
+            }
+        }
+
+        async function sendRequest() {
+            sendButton.disabled = true;
+            sendButton.textContent = '请求中';
+            const started = performance.now();
+            let trace = { attempts: [] };
+            try {
+                await refreshStatus(true);
+                const response = await fetch('/v1/chat/completions', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-Ai-Gateway-Demo-Trace': '1'
+                    },
+                    body: requestBodyEl.value
+                });
+                const latencyMs = Math.round(performance.now() - started);
+                const traceHeader = response.headers.get('X-Ai-Gateway-Trace');
+                if (traceHeader) {
+                    trace = JSON.parse(traceHeader);
+                }
+                const text = await response.text();
+                let body = text;
+                try {
+                    body = JSON.parse(text);
+                } catch (_) {
+                    body = { raw: text };
+                }
+                responseJsonEl.textContent = typeof body === 'string' ? body : pretty(body);
+                await refreshStatus(true);
+                renderSummary(response.status, latencyMs, trace);
+                renderTrace(trace);
+            } catch (error) {
+                const latencyMs = Math.round(performance.now() - started);
+                responseJsonEl.textContent = pretty({ error: String(error) });
+                renderSummary('FETCH_ERROR', latencyMs, trace);
+                renderTrace(trace);
+            } finally {
+                sendButton.disabled = false;
+                sendButton.textContent = '发送请求';
+            }
+        }
+
+        refreshButton.addEventListener('click', () => {
+            refreshStatus(false).catch((error) => {
+                statusJsonEl.textContent = pretty({ error: String(error) });
+            });
         });
-        const latencyMs = Math.round(performance.now() - started);
-        const traceHeader = response.headers.get('X-Ai-Gateway-Trace');
-        if (traceHeader) {
-          trace = JSON.parse(traceHeader);
-        }
-        const text = await response.text();
-        let body = text;
-        try {
-          body = JSON.parse(text);
-        } catch (_) {
-          body = { raw: text };
-        }
-        responseJsonEl.textContent = typeof body === 'string' ? body : pretty(body);
-        await refreshStatus();
-        renderSummary(response.status, latencyMs, trace);
-        renderTrace(trace);
-      } catch (error) {
-        const latencyMs = Math.round(performance.now() - started);
-        responseJsonEl.textContent = pretty({ error: String(error) });
-        renderSummary('FETCH_ERROR', latencyMs, trace);
-        renderTrace(trace);
-      } finally {
-        sendButton.disabled = false;
-        sendButton.textContent = '发送请求';
-      }
-    }
-
-    refreshButton.addEventListener('click', refreshStatus);
-    sendButton.addEventListener('click', sendRequest);
-    refreshStatus().catch((error) => {
-      statusJsonEl.textContent = pretty({ error: String(error) });
-    });
-  </script>
+        sendButton.addEventListener('click', sendRequest);
+        refreshStatusQuietly();
+        setInterval(refreshStatusQuietly, 2000);
+    </script>
 </body>
+
 </html>

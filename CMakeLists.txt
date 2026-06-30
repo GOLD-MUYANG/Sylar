@@ -142,6 +142,11 @@ sylar_add_executable(test_ai_gateway_real_provider_smoke
 target_include_directories(test_ai_gateway_real_provider_smoke PRIVATE ${JSONCPP_INCLUDE_DIRS})
 target_compile_options(test_ai_gateway_real_provider_smoke PRIVATE ${JSONCPP_CFLAGS_OTHER})
 set_target_properties(test_ai_gateway_real_provider_smoke PROPERTIES EXCLUDE_FROM_ALL TRUE)
+sylar_add_executable(test_ai_gateway_real_runtime
+    "tests/test_ai_gateway_real_runtime.cc;modules/ai_gateway/ai_gateway_protocol.cc;modules/ai_gateway/real_provider_gateway.cc;modules/ai_gateway/ai_provider_adapter.cc;modules/ai_gateway/real_provider_runtime.cc"
+    sylar "${LIBS};${JSONCPP_LIBRARIES}")
+target_include_directories(test_ai_gateway_real_runtime PRIVATE ${JSONCPP_INCLUDE_DIRS})
+target_compile_options(test_ai_gateway_real_runtime PRIVATE ${JSONCPP_CFLAGS_OTHER})
 sylar_add_executable(ai_gateway_real_provider_smoke
     "examples/ai_gateway_real_provider_smoke.cc;modules/ai_gateway/ai_gateway_protocol.cc;modules/ai_gateway/real_provider_gateway.cc;modules/ai_gateway/ai_provider_adapter.cc;modules/ai_gateway/real_provider_smoke.cc"
     sylar "${LIBS};${JSONCPP_LIBRARIES}")
@@ -169,6 +174,7 @@ add_library(ai_gateway_module SHARED
     modules/ai_gateway/ai_gateway_status_servlet.cc
     modules/ai_gateway/ai_provider_adapter.cc
     modules/ai_gateway/real_provider_gateway.cc
+    modules/ai_gateway/real_provider_runtime.cc
     modules/ai_gateway/ai_gateway_upstream.cc)
 target_include_directories(ai_gateway_module PRIVATE ${JSONCPP_INCLUDE_DIRS})
 target_compile_options(ai_gateway_module PRIVATE ${JSONCPP_CFLAGS_OTHER})
@@ -189,6 +195,7 @@ add_test(NAME ai_gateway_protocol COMMAND $<TARGET_FILE:test_ai_gateway_protocol
 add_test(NAME ai_gateway_servlet COMMAND $<TARGET_FILE:test_ai_gateway_servlet>)
 add_test(NAME ai_gateway_load_balance COMMAND $<TARGET_FILE:test_ai_gateway_load_balance>)
 add_test(NAME ai_gateway_real_provider COMMAND $<TARGET_FILE:test_ai_gateway_real_provider>)
+add_test(NAME ai_gateway_real_runtime COMMAND $<TARGET_FILE:test_ai_gateway_real_runtime>)
 add_test(NAME ai_gateway_status COMMAND $<TARGET_FILE:test_ai_gateway_status>)
 add_test(NAME ai_gateway_demo_servlet COMMAND $<TARGET_FILE:test_ai_gateway_demo_servlet>)
 add_test(NAME startup_missing_config COMMAND $<TARGET_FILE:bin_sylar> -s -c /tmp/sylar-missing-config)
@@ -198,7 +205,7 @@ set_tests_properties(worker_group http_session_recv_error env_config http_connec
                      ai_gateway_route_registry startup_missing_config
                      PROPERTIES LABELS "unit")
 set_tests_properties(ai_gateway_protocol ai_gateway_servlet PROPERTIES LABELS "unit")
-set_tests_properties(ai_gateway_load_balance ai_gateway_real_provider ai_gateway_status
+set_tests_properties(ai_gateway_load_balance ai_gateway_real_provider ai_gateway_real_runtime ai_gateway_status
                      ai_gateway_demo_servlet PROPERTIES LABELS "unit")
 # sylar_add_executable(test_uri "tests/test_uri.cc" sylar "${LIBS}")
 # sylar_add_executable(test_daemon "tests/test_daemon.cc" sylar "${LIBS}")

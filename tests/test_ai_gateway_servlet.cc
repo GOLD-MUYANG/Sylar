@@ -184,6 +184,56 @@ void test_demo_trace_header_is_exposed_when_enabled_and_requested()
     EXPECT_EQ(trace_root["attempts"][1]["outcome"].asString(), "success");
 }
 
+void test_real_provider_upstream_returns_compatible_response_and_trace()
+{
+    sylar::ai_gateway::AiGatewayServlet servlet(
+        [](const sylar::ai_gateway::ChatCompletionRequest &completion_request,
+           Json::Value *trace) {
+            if (trace)
+            {
+                (*trace)["object"] = "ai_gateway.real_provider.trace";
+                (*trace)["events"] = Json::Value(Json::arrayValue);
+                Json::Value event;
+                event["stage"] = "request_received";
+                event["model"] = completion_request.model;
+                (*trace)["events"].append(event);
+                Json::Value attempt;
+                attempt["stage"] = "attempt_result";
+                attempt["provider"] = "provider-a";
+                attempt["try_next_candidate"] = false;
+                (*trace)["events"].append(attempt);
+            }
+
+            sylar::http::HttpResponse::ptr upstream_response(new sylar::http::HttpResponse);
+            upstream_response->setStatus(sylar::http::HttpStatus::OK);
+            upstream_response->setHeader("Content-Type", "application/json");
+            upstream_response->setBody(sylar::ai_gateway::BuildChatCompletionResponse(
+                completion_request, "chatcmpl-real-test", 123, "real provider answer"));
+            return std::make_shared<sylar::http::HttpResult>(
+                (int)sylar::http::HttpResult::Error::OK, upstream_response, "ok");
+        },
+        true);
+    auto request = MakeRequest(
+        R"({"model":"general-chat","messages":[{"role":"user","content":"do not leak me"}]})");
+    request->setHeader("X-Ai-Gateway-Demo-Trace", "1");
+    sylar::http::HttpResponse::ptr response(new sylar::http::HttpResponse);
+
+    EXPECT_EQ(servlet.handle(request, response, nullptr), 0);
+    EXPECT_EQ(response->getStatus(), sylar::http::HttpStatus::OK);
+
+    Json::Value body;
+    EXPECT_TRUE(ParseJson(response->getBody(), &body));
+    EXPECT_EQ(body["model"].asString(), "general-chat");
+    EXPECT_EQ(body["choices"][0]["message"]["content"].asString(), "real provider answer");
+
+    const std::string trace_header = response->getHeader("X-Ai-Gateway-Trace");
+    Json::Value trace_root;
+    EXPECT_TRUE(ParseJson(trace_header, &trace_root));
+    EXPECT_EQ(trace_root["object"].asString(), "ai_gateway.real_provider.trace");
+    EXPECT_EQ(trace_root["events"][0]["stage"].asString(), "request_received");
+    EXPECT_TRUE(trace_header.find("do not leak me") == std::string::npos);
+}
+
 } // namespace
 
 int main()
@@ -193,5 +243,6 @@ int main()
     test_upstream_failure_hides_internal_error();
     test_rate_limited_upstream_maps_to_429();
     test_demo_trace_header_is_exposed_when_enabled_and_requested();
+    test_real_provider_upstream_returns_compatible_response_and_trace();
     return g_failures == 0 ? 0 : 1;
 }

@@ -208,6 +208,11 @@ private:
     void open(EndpointState &state, uint64_t now_ms);
 
     /**
+     * @brief OPEN 冷却时间结束后切到 HALF_OPEN。
+     */
+    void refreshOpenState(EndpointState &state, uint64_t now_ms);
+
+    /**
      * @brief 关闭熔断，恢复 CLOSED 状态，并清空统计数据。
      */
     void close(EndpointState &state);

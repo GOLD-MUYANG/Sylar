@@ -102,10 +102,44 @@ void test_status_snapshot_reports_provider_fields()
     EXPECT_TRUE(first_provider["last_failure_reason"].isString());
 }
 
+void test_status_includes_real_provider_section_when_available()
+{
+    sylar::ai_gateway::AiGatewayStatusServlet servlet(
+        std::vector<sylar::ai_gateway::AiGatewayProviderConfig>(),
+        sylar::http::HttpLoadBalanceClient::ptr(),
+        []() {
+            Json::Value root;
+            root["object"] = "ai_gateway.real_provider.status";
+            Json::Value provider;
+            provider["name"] = "provider-a";
+            provider["endpoint"] = "https://api-a.example";
+            provider["logical_model"] = "general-chat";
+            provider["upstream_model"] = "upstream-a";
+            provider["success_count"] = Json::UInt64(1);
+            root["providers"].append(provider);
+            return root;
+        });
+    sylar::http::HttpRequest::ptr request(new sylar::http::HttpRequest);
+    request->setMethod(sylar::http::HttpMethod::GET);
+    request->setPath("/internal/status");
+    sylar::http::HttpResponse::ptr response(new sylar::http::HttpResponse);
+
+    EXPECT_EQ(servlet.handle(request, response, nullptr), 0);
+    EXPECT_EQ(response->getStatus(), sylar::http::HttpStatus::OK);
+
+    Json::Value root;
+    EXPECT_TRUE(ParseJson(response->getBody(), &root));
+    EXPECT_EQ(root["real_providers"]["object"].asString(), "ai_gateway.real_provider.status");
+    EXPECT_EQ(root["real_providers"]["providers"][0]["name"].asString(), "provider-a");
+    EXPECT_TRUE(response->getBody().find("SYLAR_TEST_REAL_PROVIDER_KEY") == std::string::npos);
+    EXPECT_TRUE(response->getBody().find("sk-") == std::string::npos);
+}
+
 } // namespace
 
 int main()
 {
     test_status_snapshot_reports_provider_fields();
+    test_status_includes_real_provider_section_when_available();
     return g_failures == 0 ? 0 : 1;
 }

@@ -40,12 +40,25 @@ std::string BuildTraceHeader(const sylar::http::HttpLoadBalanceRequestTrace &tra
     return Json::writeString(builder, root);
 }
 
+std::string DumpTraceJson(const Json::Value &trace)
+{
+    Json::StreamWriterBuilder builder;
+    builder["indentation"] = "";
+    return Json::writeString(builder, trace);
+}
+
 // 构造 AI 网关 Servlet。
 // upstream_post：外部注入的上游调用函数，用来把请求转发给模型提供者。
 // m_requestSequence：本地请求序号，用来生成 chatcmpl-local-xxx 形式的响应 id。
 AiGatewayServlet::AiGatewayServlet(UpstreamPost upstream_post, bool demo_trace_enabled)
     : Servlet("ai_gateway"), m_upstreamPost(upstream_post), m_demoTraceEnabled(demo_trace_enabled),
       m_requestSequence(0)
+{
+}
+
+AiGatewayServlet::AiGatewayServlet(CompatibleUpstreamPost upstream_post, bool demo_trace_enabled)
+    : Servlet("ai_gateway"), m_compatibleUpstreamPost(upstream_post),
+      m_demoTraceEnabled(demo_trace_enabled), m_requestSequence(0)
 {
 }
 
@@ -78,6 +91,7 @@ int32_t AiGatewayServlet::handle(sylar::http::HttpRequest::ptr request,
 
     sylar::http::HttpResult::ptr upstream_result;
     sylar::http::HttpLoadBalanceRequestTrace trace;
+    Json::Value compatible_trace;
     const bool trace_requested =
         m_demoTraceEnabled && request->getHeader("X-Ai-Gateway-Demo-Trace") == "1";
 
@@ -86,9 +100,18 @@ int32_t AiGatewayServlet::handle(sylar::http::HttpRequest::ptr request,
         // 调用注入进来的上游请求函数。
         // 这里不直接写死上游地址，而是通过 m_upstreamPost 解耦：
         // 测试时可以注入 mock，上线时可以注入真实的 HTTP 负载均衡调用。
-        upstream_result =
-            m_upstreamPost ? m_upstreamPost(request->getBody(), trace_requested ? &trace : nullptr)
-                           : nullptr;
+        if (m_compatibleUpstreamPost)
+        {
+            upstream_result = m_compatibleUpstreamPost(
+                completion_request, trace_requested ? &compatible_trace : nullptr);
+        }
+        else
+        {
+            upstream_result = m_upstreamPost
+                                  ? m_upstreamPost(request->getBody(),
+                                                   trace_requested ? &trace : nullptr)
+                                  : nullptr;
+        }
     }
     catch (const std::exception &e)
     {
@@ -102,9 +125,41 @@ int32_t AiGatewayServlet::handle(sylar::http::HttpRequest::ptr request,
         SYLAR_LOG_ERROR(g_logger) << "ai gateway upstream callback threw";
     }
 
-    if (trace_requested)
+    if (trace_requested && m_compatibleUpstreamPost)
+    {
+        response->setHeader("X-Ai-Gateway-Trace", DumpTraceJson(compatible_trace));
+    }
+    else if (trace_requested)
     {
         response->setHeader("X-Ai-Gateway-Trace", BuildTraceHeader(trace));
+    }
+
+    if (m_compatibleUpstreamPost)
+    {
+        if (!upstream_result ||
+            upstream_result->result != (int)sylar::http::HttpResult::Error::OK ||
+            !upstream_result->response)
+        {
+            if (upstream_result && upstream_result->response)
+            {
+                response->setStatus(upstream_result->response->getStatus());
+                response->setHeader("Content-Type",
+                                    upstream_result->response->getHeader("Content-Type",
+                                                                         "application/json"));
+                response->setBody(upstream_result->response->getBody());
+                return 0;
+            }
+            writeError(response, sylar::http::HttpStatus::BAD_GATEWAY,
+                       "没有可用的上游模型服务", "server_error", "UPSTREAM_UNAVAILABLE");
+            return 0;
+        }
+
+        response->setStatus(upstream_result->response->getStatus());
+        response->setHeader("Content-Type",
+                            upstream_result->response->getHeader("Content-Type",
+                                                                 "application/json"));
+        response->setBody(upstream_result->response->getBody());
+        return 0;
     }
 
     // 校验上游调用结果。

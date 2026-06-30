@@ -1,10 +1,10 @@
 ai_gateway:
-  # 默认关闭，避免普通框架启动自动依赖本地 Mock Provider。
-  enabled: false
+  enabled: true
   server_name: ai-gateway
   request_timeout_ms: 800
   request_deadline_ms: 800
   max_total_attempts: 3
+  demo_trace_enabled: true
   load_balance: ROUND_ROBIN
   limiter:
     max_global_concurrency: 32
@@ -20,13 +20,58 @@ ai_gateway:
     open_timeout_ms: 5000
     half_open_max_requests: 1
   health_check:
-    enabled: false
-    path: /
+    enabled: true
+    path: /health
     timeout_ms: 500
   providers:
+    - name: mock-c
+      url: http://127.0.0.1:19003
+      weight: 1
     - name: mock-a
       url: http://127.0.0.1:19001
       weight: 1
     - name: mock-b
       url: http://127.0.0.1:19002
+      weight: 1
+
+real_providers:
+  # 演示配置默认仍关闭真实 Provider；设置 Key 后可手工改为 true。
+  enabled: false
+  server_name: ai-gateway
+  route_path: /v1/chat/completions
+  demo_enabled: true
+  request_deadline_ms: 30000
+  max_total_attempts: 3
+  limiter:
+    max_global_concurrency: 8
+    max_endpoint_concurrency: 2
+    max_global_qps: 20
+    max_endpoint_qps: 5
+  circuit_breaker:
+    enabled: true
+    consecutive_failure_threshold: 3
+    open_timeout_ms: 5000
+    half_open_max_requests: 1
+  providers:
+    - name: volcengine-ark
+      enabled: true
+      type: openai_compatible
+      logical_model: general-chat
+      compatibility_key: chat-basic-v1
+      base_url: https://ark.cn-beijing.volces.com/api/v3
+      chat_path: /chat/completions
+      upstream_model: doubao-seed-2-0-lite-260428
+      api_key_env: ARK_API_DOUBAO
+      tls_server_name: ark.cn-beijing.volces.com
+      weight: 1
+    - name: deepseek
+      enabled: true
+      type: openai_compatible
+      logical_model: general-chat
+      compatibility_key: chat-basic-v1
+      base_url: https://api.deepseek.com
+      chat_path: /chat/completions
+      upstream_model: deepseek-chat
+      api_key_env: API_KEY_DEEPSEEK
+      tls_server_name: api.deepseek.com
       weight: 1

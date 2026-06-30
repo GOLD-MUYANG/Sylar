@@ -39,6 +39,11 @@ int main()
     EXPECT_TRUE(response->getBody().find("id=\"sendRequest\"") != std::string::npos);
     EXPECT_TRUE(response->getBody().find("X-Ai-Gateway-Demo-Trace") != std::string::npos);
     EXPECT_TRUE(response->getBody().find("/internal/status") != std::string::npos);
+    EXPECT_TRUE(response->getBody().find("displayStateForProvider") != std::string::npos);
+    EXPECT_TRUE(response->getBody().find("PROBING") != std::string::npos);
+    EXPECT_TRUE(response->getBody().find("id=\"lastStatusRefresh\"") != std::string::npos);
+    EXPECT_TRUE(response->getBody().find("setInterval(refreshStatusQuietly") !=
+                std::string::npos);
 
     return g_failures == 0 ? 0 : 1;
 }

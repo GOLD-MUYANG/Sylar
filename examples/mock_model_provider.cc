@@ -25,6 +25,7 @@ struct ProviderOptions
     uint64_t delay_ms = 0; // 慢响应模式下的延迟时间，单位毫秒
     std::string name;      // provider 名称，例如 mock-a / mock-b
     std::string mode;      // 工作模式：normal / slow / error
+    std::string contract = "mock"; // 响应契约：mock / openai
 };
 
 // 从命令行参数中读取指定参数名后面的值。
@@ -91,11 +92,17 @@ bool ParseOptions(int argc, char **argv, ProviderOptions *options)
         options->delay_ms = strtoull(value.c_str(), nullptr, 10);
     }
 
+    if (ReadArgument(argc, argv, "--contract", &value))
+    {
+        options->contract = value;
+    }
+
     // 只允许三种模式：
     // normal：正常返回 mock completion
     // slow：先 sleep 一段时间，再正常返回
     // error：返回 503 错误
-    return options->mode == "normal" || options->mode == "slow" || options->mode == "error";
+    return (options->mode == "normal" || options->mode == "slow" || options->mode == "error") &&
+           (options->contract == "mock" || options->contract == "openai");
 }
 
 // 启动一个本地 Mock Model Provider。
@@ -180,9 +187,27 @@ void StartProvider(const ProviderOptions &options)
             }
 
             // normal 模式，或者 slow 模式 sleep 结束后：
-            // 返回一个 mock 的模型响应。
-            response->setBody(
-                sylar::ai_gateway::BuildMockProviderResponse(options.name, "mock completion"));
+            // 默认返回网关内部 mock 契约；真实 Provider 演示可切换为 OpenAI-compatible
+            // 契约，以便通过真实 provider adapter 的响应形状校验。
+            if (options.contract == "openai")
+            {
+                sylar::ai_gateway::ChatCompletionRequest completion_request;
+                std::string parse_error;
+                if (!sylar::ai_gateway::ParseChatCompletionRequest(request->getBody(),
+                                                                    &completion_request,
+                                                                    &parse_error))
+                {
+                    completion_request.model = "general-chat";
+                }
+                response->setBody(sylar::ai_gateway::BuildChatCompletionResponse(
+                    completion_request, "chatcmpl-" + options.name, time(nullptr),
+                    "mock completion from " + options.name));
+            }
+            else
+            {
+                response->setBody(
+                    sylar::ai_gateway::BuildMockProviderResponse(options.name, "mock completion"));
+            }
 
             return 0;
         });
@@ -202,7 +227,8 @@ int main(int argc, char **argv)
     if (!ParseOptions(argc, argv, &options))
     {
         SYLAR_LOG_ERROR(g_logger) << "usage: mock_model_provider --port <1-65535> --name <name> "
-                                     "--mode normal|slow|error [--delay-ms <ms>]";
+                                     "--mode normal|slow|error [--delay-ms <ms>] "
+                                     "[--contract mock|openai]";
         return 1;
     }
 
