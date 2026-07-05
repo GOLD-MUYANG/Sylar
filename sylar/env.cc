@@ -25,10 +25,10 @@ bool Env::init(int argc, char **argv)
     readlink(link, path, sizeof(path)); // 读取实际路径
     m_exe = path;                       // 保存完整程序路径
 
-    // 获取程序所在目录
     auto pos = m_exe.find_last_of("/");
+    // 获取可执行文件所在目录
     m_cwd = m_exe.substr(0, pos) + "/"; // 目录路径以 / 结尾
-    //也就是加了个更安全的边界的判断，不过对于这种普通的程序其实我觉得是没有很大的必要的
+    //获取当前工作目录（在哪个shell里执行的命令）
     char startup_cwd[1024] = {0};
     if (!getcwd(startup_cwd, sizeof(startup_cwd)))
     {
@@ -180,6 +180,7 @@ std::string Env::getAbsolutePath(const std::string &path) const
     return m_cwd + path;
 }
 
+//决定配置文件目录在哪里
 std::string Env::getConfigPath()
 {
     if (!has("c"))
@@ -193,7 +194,7 @@ std::string Env::getConfigPath()
     {
         return path.empty() ? m_startupCwd : path;
     }
-    // 显式 -c 是操作者输入，应相对启动目录而不是可执行文件目录解释。
+    // 显式 -c 是操作者输入，应相对启动目录(shell的地址)而不是可执行文件目录解释。
     return m_startupCwd + "/" + path;
 }
 } // namespace sylar

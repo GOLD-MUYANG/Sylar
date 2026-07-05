@@ -253,36 +253,65 @@ public:
     }
 };
 
+// 将 std::map<std::string, T> 转换成 std::string
+// 转换结果一般是 YAML 格式字符串
 template <class T>
 class LexicalCast<std::map<std::string, T>, std::string>
 {
 public:
     std::string operator()(const std::map<std::string, T> &v)
     {
+        // 创建一个 YAML 节点，用来承载整个 map
         YAML::Node node;
+
+        // 遍历 map 中的每一个 key-value
         for (auto &i : v)
         {
+            // i.first  是 map 的 key，类型是 std::string
+            // i.second 是 map 的 value，类型是 T
+            //
+            // LexicalCast<T, std::string>()(i.second)
+            // 先把 T 类型的 value 转成字符串
+            //
+            // YAML::Load(...)
+            // 再把这个字符串解析成 YAML 节点
+            //
+            // 最后挂到 node[i.first] 下面
             node[i.first] = YAML::Load(LexicalCast<T, std::string>()(i.second));
         }
+
+        // 使用 stringstream 把 YAML::Node 序列化成字符串
         std::stringstream ss;
         ss << node;
+
+        // 返回最终的 YAML 字符串
         return ss.str();
     }
 };
-
+// 将 std::string 转换成 std::unordered_map<std::string, T>
+// 输入字符串一般应该是 YAML 格式
 template <class T>
 class LexicalCast<std::string, std::unordered_map<std::string, T>>
 {
 public:
     std::unordered_map<std::string, T> operator()(const std::string &v)
     {
+        // 把输入字符串解析成 YAML 节点
         YAML::Node node = YAML::Load(v);
+        // 存放最终转换出来的 unordered_map
         typename std::unordered_map<std::string, T> vec;
         std::stringstream ss;
+        // 把当前 YAML value 写入字符串流
+        // 例如 value 是 [1, 2, 3]，这里就会变成字符串 "[1, 2, 3]"
         for (auto it = node.begin(); it != node.end(); ++it)
         {
             ss.str("");
             ss << it->second;
+            // it->first.Scalar()
+            // 取 YAML map 的 key，要求 key 是标量字符串
+            //
+            // LexicalCast<std::string, T>()(ss.str())
+            // 再把 value 对应的 YAML 字符串转换成 T 类型
             vec.insert(std::make_pair(it->first.Scalar(), LexicalCast<std::string, T>()(ss.str())));
         }
         return vec;
@@ -366,6 +395,10 @@ public:
         RWMutexType::ReadLock lock(m_mutex);
         return m_val;
     }
+    /**
+1. 判断新值是否等于旧值
+2. 如果不同，触发所有回调
+3. 把 m_val 改成新值*/
     void setValue(const T &v)
     {
         {

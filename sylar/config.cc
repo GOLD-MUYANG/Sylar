@@ -44,6 +44,7 @@ static void ListAllMember(const std::string &prefix,
 void Config::LoadFromYaml(const YAML::Node &root)
 {
     std::list<std::pair<std::string, const YAML::Node>> all_Nodes;
+    // 把 YAML 层级结构展平成 key 列表
     ListAllMember("", root, all_Nodes);
     for (auto &i : all_Nodes)
     {
@@ -108,13 +109,14 @@ bool Config::LoadFromConfDir(const std::string &path, bool force)
             struct stat st;
             if (lstat(i.c_str(), &st) != 0)
             {
-                SYLAR_LOG_ERROR(g_logger) << "LoadConfFile file=" << i
-                                          << " stat failed errno=" << errno
-                                          << " errstr=" << strerror(errno);
+                SYLAR_LOG_ERROR(g_logger)
+                    << "LoadConfFile file=" << i << " stat failed errno=" << errno
+                    << " errstr=" << strerror(errno);
                 success = false;
                 continue;
             }
             sylar::Mutex::Lock lock(s_mutex);
+            //判断是否需要加载（修改时间有没有改变）
             if (!force && s_file2modifytime[i] == (uint64_t)st.st_mtime)
             {
                 continue;

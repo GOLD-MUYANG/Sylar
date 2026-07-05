@@ -4,6 +4,10 @@
 
 > [!NOTE]
 > 本项目是基于 Sylar 实现的一个 Linux 下的高性能服务器框架，包括日志系统，配置系统，协程模块，IO 模块，定时器，网络系统等功能。
+>
+> 当前项目在原有服务框架基础上，已经继续扩展出一条 HTTP 客户端治理链路：
+> `HttpConnectionPool -> HttpRequestOptions -> HttpClient -> retry -> HttpLoadBalanceClient -> HttpConcurrencyLimiter -> HttpCircuitBreaker`。
+> 这条链路进一步被用于 AI 模型调用网关：本地 Mock Provider 闭环已可离线演示负载均衡、故障转移、限流、熔断和状态观测；真实 Provider 路径也已经具备配置读取、环境变量 Key、OpenAI-compatible 非流式适配、错误分类、执行预算、状态页和手工 smoke 入口，但真实外部访问默认关闭，需要操作者显式提供本机 API Key 后手工验证。
 
 <br>
 
@@ -279,3 +283,103 @@
 >   - [`sylar/http/http_load_balance_client.h`](sylar/http/http_load_balance_client.h)、[`sylar/http/http_load_balance_client.cc`](sylar/http/http_load_balance_client.cc)：熔断器接入和失败节点切换。
 >
 > - 根据连续失败次数或窗口失败率切换 CLOSED、OPEN、HALF_OPEN 状态，阻止故障节点继续承接请求。
+
+## AI 模型调用网关
+
+> [!NOTE]
+> - **对应文件**
+>   - [`modules/ai_gateway/ai_gateway_module.cc`](modules/ai_gateway/ai_gateway_module.cc)：动态模块入口，读取网关配置并注册路由。
+>   - [`modules/ai_gateway/ai_gateway_protocol.h`](modules/ai_gateway/ai_gateway_protocol.h)、[`modules/ai_gateway/ai_gateway_protocol.cc`](modules/ai_gateway/ai_gateway_protocol.cc)：Chat Completions 非流式基础请求、响应和错误对象编解码。
+>   - [`modules/ai_gateway/ai_gateway_servlet.h`](modules/ai_gateway/ai_gateway_servlet.h)、[`modules/ai_gateway/ai_gateway_servlet.cc`](modules/ai_gateway/ai_gateway_servlet.cc)：`POST /v1/chat/completions` 入口，请求校验、统一响应和 trace 头处理。
+>   - [`modules/ai_gateway/ai_gateway_upstream.h`](modules/ai_gateway/ai_gateway_upstream.h)、[`modules/ai_gateway/ai_gateway_upstream.cc`](modules/ai_gateway/ai_gateway_upstream.cc)：把多个 Mock Provider 装配到 `HttpLoadBalanceClient`，接入 deadline、attempt budget、limiter、breaker 和健康检查。
+>   - [`modules/ai_gateway/ai_gateway_status_servlet.h`](modules/ai_gateway/ai_gateway_status_servlet.h)、[`modules/ai_gateway/ai_gateway_status_servlet.cc`](modules/ai_gateway/ai_gateway_status_servlet.cc)：只读 `/internal/status` 状态接口。
+>   - [`modules/ai_gateway/ai_gateway_demo.html`](modules/ai_gateway/ai_gateway_demo.html)、[`modules/ai_gateway/ai_gateway_demo_servlet.cc`](modules/ai_gateway/ai_gateway_demo_servlet.cc)：本地演示页面和静态页面 Servlet。
+>   - [`examples/mock_model_provider.cc`](examples/mock_model_provider.cc)：本地模型提供者模拟服务，支持 `normal`、`slow`、`error` 模式。
+>
+> - 网关对外提供 OpenAI Chat Completions 的非流式基础形状，第一版只覆盖文本 `messages`、`model`、基础可选参数和 OpenAI 风格错误对象，不实现 SSE 流式输出、tools/function calling、多模态、账号、计费或 RAG。
+> - 本地 Mock 闭环已经完成 G0-G5：可启动多个 Mock Provider，按策略分流；Provider 失败、超时、限流或熔断时按预算切换候选；所有候选不可用时返回结构化错误，不无限排队、不无限重试。
+> - `/internal/status` 展示 provider 健康状态、熔断状态、in-flight、成功/失败/限流计数和最近失败原因。`/demo` 页面可以发送请求并展示本次请求的 timeline；普通响应体不暴露内部 provider 名、地址、凭据或堆栈。
+> - 演示入口：
+>
+>   ```bash
+>   cmake --build build --target mock_model_provider ai_gateway_module bin_sylar
+>   ./scripts/demo_ai_gateway.sh
+>   ./scripts/demo_ai_gateway.sh --serve
+>   ```
+
+## 真实 Provider 网关
+
+> [!NOTE]
+> - **对应文件**
+>   - [`modules/ai_gateway/real_provider_gateway.h`](modules/ai_gateway/real_provider_gateway.h)、[`modules/ai_gateway/real_provider_gateway.cc`](modules/ai_gateway/real_provider_gateway.cc)：`ProviderCandidate`、逻辑模型路由、共享 `RequestExecutionBudget` 和 provider-aware executor。
+>   - [`modules/ai_gateway/ai_provider_adapter.h`](modules/ai_gateway/ai_provider_adapter.h)、[`modules/ai_gateway/ai_provider_adapter.cc`](modules/ai_gateway/ai_provider_adapter.cc)：`AiProviderAdapter` 契约和 OpenAI-compatible 非流式适配器。
+>   - [`modules/ai_gateway/real_provider_runtime.h`](modules/ai_gateway/real_provider_runtime.h)、[`modules/ai_gateway/real_provider_runtime.cc`](modules/ai_gateway/real_provider_runtime.cc)：运行时读取 `real_providers` 配置、校验 provider 字段、按 `api_key_env` 读取环境变量并构建状态输出。
+>   - [`modules/ai_gateway/real_provider_smoke.h`](modules/ai_gateway/real_provider_smoke.h)、[`modules/ai_gateway/real_provider_smoke.cc`](modules/ai_gateway/real_provider_smoke.cc)：真实 Provider smoke 的受控执行入口。
+>   - [`examples/ai_gateway_real_provider_smoke.cc`](examples/ai_gateway_real_provider_smoke.cc)、[`scripts/smoke_ai_gateway_real_provider.sh`](scripts/smoke_ai_gateway_real_provider.sh)、[`scripts/demo_ai_gateway_real_provider.sh`](scripts/demo_ai_gateway_real_provider.sh)：手工真实请求和页面演示脚本。
+>
+> - 真实 Provider 路径解决的是 HTTPS、凭据、供应商错误分类、逻辑模型路由、非幂等重试安全和 provider-aware 调用治理，不训练模型，也不把某家 Provider SDK 塞进 Servlet。
+> - 配置文件只保存 `api_key_env`，真实 Key 只能来自当前进程环境变量；Key、Authorization、完整用户消息和 Provider 原始响应不能进入日志、状态接口、trace、错误响应或测试快照。
+> - 同一个 `logical_model` 下的候选必须有兼容的 `compatibility_key`。故障转移只表示“尽量完成本次服务调用”，不保证不同 Provider 的输出、usage、价格或内容策略完全一致。
+> - 对可能已经提交给 Provider 的请求，默认不盲目重试或切换，避免重复执行和重复计费。只有连接失败、写入前失败等能确认未提交的情况，才会在总 deadline 和总尝试预算内切换候选。
+> - 真实外部访问默认关闭；默认测试、CI 和 Mock demo 都不依赖外网、真实 API Key 或计费账户。手工 smoke 需要显式 opt-in：
+>
+>   ```bash
+>   export ARK_API_KEY='本机真实 Key'
+>   export SYLAR_AI_GATEWAY_REAL_SMOKE=1
+>   ./scripts/smoke_ai_gateway_real_provider.sh
+>   ```
+>
+> - 真实 Provider 页面演示同样必须显式开启，并以 [`examples/ai_gateway_conf/ai_gateway.yml`](examples/ai_gateway_conf/ai_gateway.yml) 中的 enabled provider 和 `api_key_env` 为准：
+>
+>   ```bash
+>   export API_KEY_DOUBAO='本机真实 Key'
+>   export API_KEY_DEEPSEEK='本机真实 Key'
+>   export SYLAR_AI_GATEWAY_REAL_DEMO=1
+>   ./scripts/demo_ai_gateway_real_provider.sh
+>   ```
+
+## 稳定性修复与测试入口
+
+> [!NOTE]
+> - 已补齐的可靠性修复包括：`WorkerGroup` 并发名额初始化与异常回收、配置目录失败返回、连接池非法 URI 返回空指针契约、模块 load/unload 与 ready/up/connect/disconnect 生命周期、HTTPS 客户端默认 CA/主机名/SNI 校验、启动失败非零退出、CTest 单元测试入口。
+> - 常用构建和回归命令：
+>
+>   ```bash
+>   cmake -S . -B build
+>   cmake --build build
+>   ctest --test-dir build -L unit --output-on-failure
+>   ctest --test-dir build -R ai_gateway --output-on-failure
+>   ```
+>
+> - HTTP 客户端链路常用测试：
+>
+>   ```bash
+>   ./bin/test_http_request_options
+>   ./bin/test_http_client
+>   ./bin/test_http_load_balance_client
+>   ./bin/test_http_concurrency_limiter
+>   ./bin/test_http_circuit_breaker
+>   ./bin/test_http_connection
+>   ```
+>
+> - AI 网关相关测试：
+>
+>   ```bash
+>   ./bin/test_ai_gateway_route_registry
+>   ./bin/test_ai_gateway_protocol
+>   ./bin/test_ai_gateway_servlet
+>   ./bin/test_ai_gateway_load_balance
+>   ./bin/test_ai_gateway_status
+>   ./bin/test_ai_gateway_demo_servlet
+>   ./bin/test_ai_gateway_real_provider
+>   ./bin/test_ai_gateway_real_runtime
+>   ```
+>
+> - `test_http_connection` 会访问外网；真实 Provider smoke 和真实 Provider demo 需要显式环境变量，不属于默认离线验证。
+
+## 压测记录与后续方向
+
+> [!NOTE]
+> - [`文档/压力测试.md`](文档/压力测试.md) 中记录过本地 ApacheBench 结果：短连接 `ab -n 50000 -c 100` 约 5448 QPS，长连接 `ab -k -n 50000 -c 100` 约 23650 QPS。该结果用于说明当时本机环境下的服务端基线，不等同于跨环境的性能承诺。
+> - 后续更适合继续推进的方向包括服务发现、RPC 语义、服务级熔断、降级回调、指标导出、真实 Provider 的离线 HTTPS 夹具和更完整的观测指标。
+> - 暂不宣称已实现完整微服务治理平台、完整 OpenAI API、流式 SSE、tools/function calling、多模态、用户级计费或 token 成本治理。

@@ -32,6 +32,7 @@ static int real_start(int argc, char **argv, std::function<int(int argc, char **
 static int real_daemon(int argc, char **argv, std::function<int(int argc, char **argv)> main_cb)
 {
     daemon(1, 1);
+    // 执行完 daemon() 后，当前进程就成了 守护父进程。
     ProcessInfoMgr::GetInstance()->parent_id = getpid();
     ProcessInfoMgr::GetInstance()->parent_start_time = time(0);
     while (true)
@@ -39,7 +40,7 @@ static int real_daemon(int argc, char **argv, std::function<int(int argc, char *
         pid_t pid = fork();
         if (pid == 0)
         {
-            //子进程返回
+            //子进程执行下面的代码
             ProcessInfoMgr::GetInstance()->main_id = getpid();
             ProcessInfoMgr::GetInstance()->main_start_time = time(0);
             SYLAR_LOG_INFO(g_logger) << "process start pid=" << getpid();
@@ -53,7 +54,8 @@ static int real_daemon(int argc, char **argv, std::function<int(int argc, char *
         }
         else
         {
-            //父进程返回
+            //父进程执行下面的代码
+            // 父进程会阻塞在 waitpid 上，等待刚刚 fork 出来的子进程退出。
             int status = 0;
             waitpid(pid, &status, 0);
             if (status)
@@ -65,6 +67,7 @@ static int real_daemon(int argc, char **argv, std::function<int(int argc, char *
                 SYLAR_LOG_INFO(g_logger) << "child finished pid=" << pid;
                 break;
             }
+            // 子进程异常退出：父进程重启子进程
             ProcessInfoMgr::GetInstance()->restart_count += 1;
             SYLAR_LOG_INFO(g_logger) << "wait " << g_daemon_restart_interval->getValue() << "s";
             sleep(g_daemon_restart_interval->getValue());
