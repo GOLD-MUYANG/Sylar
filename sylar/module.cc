@@ -16,10 +16,11 @@ Module::Module(const std::string &name, const std::string &version, const std::s
 {
 }
 
+// 模块提前注册自己支持的命令行参数
 void Module::onBeforeArgsParse(int argc, char **argv)
 {
 }
-
+// 模块根据解析后的参数做初始化准备
 void Module::onAfterArgsParse(int argc, char **argv)
 {
 }
@@ -124,6 +125,52 @@ void ModuleManager::init()
     }
 }
 
+void ModuleManager::onBeforeArgsParse(int argc, char **argv)
+{
+    std::vector<Module::ptr> ms;
+    listAll(ms);
+
+    for (auto &m : ms)
+    {
+        try
+        {
+            m->onBeforeArgsParse(argc, argv);
+        }
+        catch (const std::exception &e)
+        {
+            SYLAR_LOG_ERROR(g_logger)
+                << "module onBeforeArgsParse threw id=" << m->getId() << " error=" << e.what();
+        }
+        catch (...)
+        {
+            SYLAR_LOG_ERROR(g_logger) << "module onBeforeArgsParse threw id=" << m->getId();
+        }
+    }
+}
+
+void ModuleManager::onAfterArgsParse(int argc, char **argv)
+{
+    std::vector<Module::ptr> ms;
+    listAll(ms);
+
+    for (auto &m : ms)
+    {
+        try
+        {
+            m->onAfterArgsParse(argc, argv);
+        }
+        catch (const std::exception &e)
+        {
+            SYLAR_LOG_ERROR(g_logger)
+                << "module onAfterArgsParse threw id=" << m->getId() << " error=" << e.what();
+        }
+        catch (...)
+        {
+            SYLAR_LOG_ERROR(g_logger) << "module onAfterArgsParse threw id=" << m->getId();
+        }
+    }
+}
+
 void ModuleManager::onConnect(Stream::ptr stream)
 {
     std::vector<Module::ptr> ms;
@@ -140,8 +187,8 @@ void ModuleManager::onConnect(Stream::ptr stream)
         }
         catch (const std::exception &e)
         {
-            SYLAR_LOG_ERROR(g_logger) << "module onConnect threw id=" << m->getId()
-                                      << " error=" << e.what();
+            SYLAR_LOG_ERROR(g_logger)
+                << "module onConnect threw id=" << m->getId() << " error=" << e.what();
         }
         catch (...)
         {
@@ -166,8 +213,8 @@ void ModuleManager::onDisconnect(Stream::ptr stream)
         }
         catch (const std::exception &e)
         {
-            SYLAR_LOG_ERROR(g_logger) << "module onDisconnect threw id=" << m->getId()
-                                      << " error=" << e.what();
+            SYLAR_LOG_ERROR(g_logger)
+                << "module onDisconnect threw id=" << m->getId() << " error=" << e.what();
         }
         catch (...)
         {
@@ -192,8 +239,8 @@ void ModuleManager::onServerReady()
         }
         catch (const std::exception &e)
         {
-            SYLAR_LOG_ERROR(g_logger) << "module onServerReady threw id=" << m->getId()
-                                      << " error=" << e.what();
+            SYLAR_LOG_ERROR(g_logger)
+                << "module onServerReady threw id=" << m->getId() << " error=" << e.what();
         }
         catch (...)
         {
@@ -218,8 +265,8 @@ void ModuleManager::onServerUp()
         }
         catch (const std::exception &e)
         {
-            SYLAR_LOG_ERROR(g_logger) << "module onServerUp threw id=" << m->getId()
-                                      << " error=" << e.what();
+            SYLAR_LOG_ERROR(g_logger)
+                << "module onServerUp threw id=" << m->getId() << " error=" << e.what();
         }
         catch (...)
         {

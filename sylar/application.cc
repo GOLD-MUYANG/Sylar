@@ -167,14 +167,9 @@ bool Application::init(int argc, char **argv)
 
     //加载模块
     ModuleMgr::GetInstance()->init();
-    std::vector<Module::ptr> modules;
-    ModuleMgr::GetInstance()->listAll(modules);
 
     // 把模块的添加的命令行提示加进去
-    for (auto i : modules)
-    {
-        i->onBeforeArgsParse(argc, argv);
-    }
+    ModuleMgr::GetInstance()->onBeforeArgsParse(argc, argv);
     // 打印命令行提示
     if (is_print_help)
     {
@@ -183,13 +178,7 @@ bool Application::init(int argc, char **argv)
     }
 
     // 做完以后，看看这个模块还有什么想做的，那就加载一下
-    for (auto i : modules)
-    {
-        i->onAfterArgsParse(argc, argv);
-    }
-    // 现阶段模块该做到的已经做到了，清楚掉，剩下的等application跑起来再说
-    modules.clear();
-
+    ModuleMgr::GetInstance()->onAfterArgsParse(argc, argv);
     // 确定运行类型：0 未指定，1 前台，2 守护进程
     int run_type = 0;
     if (sylar::EnvMgr::GetInstance()->has("s"))

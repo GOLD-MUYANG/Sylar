@@ -57,7 +57,7 @@ void WorkerGroup::waitAll()
         m_finish = true;
         for (uint32_t i = 0; i < m_batchSize; ++i)
         {
-            // 取回全部并发名额，表示之前投递的任务都已经执行结束。
+            // 取回全部并发名额，就是说没有任务可以继续执行了。
             m_sem.wait();
         }
     }

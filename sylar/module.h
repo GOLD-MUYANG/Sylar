@@ -20,22 +20,27 @@ public:
     virtual void onBeforeArgsParse(int argc, char **argv);
     virtual void onAfterArgsParse(int argc, char **argv);
 
-    // 模块加载时调用
+    // 模块加载时调用 onLoad 成功才 add 到 ModuleManager
     virtual bool onLoad();
 
     // 模块卸载时调用
     virtual bool onUnload();
 
-    // 有新连接进来时调用
+    // 每个 TCP 连接进来和断开时通知模块。
     virtual bool onConnect(Stream::ptr stream);
 
     // 连接断开时调用
     virtual bool onDisconnect(Stream::ptr stream);
 
-    // 服务器准备完成时调用
+    // HTTP server 已经创建 / bind 好，但还没开始 accept，适合注册 servlet 路由。
     virtual bool onServerReady();
 
     // 服务器真正启动后调用
+    // 上报服务状态
+    // 启动后台任务
+    // 启动健康检查
+    // 启动定时器
+    // 向注册中心注册自己
     virtual bool onServerUp();
 
     virtual std::string statusString();
@@ -84,11 +89,12 @@ public:
 
     Module::ptr get(const std::string &name);
 
+    void onBeforeArgsParse(int argc, char **argv);
+    void onAfterArgsParse(int argc, char **argv);
     void onConnect(Stream::ptr stream);
     void onDisconnect(Stream::ptr stream);
     void onServerReady();
     void onServerUp();
-
     void listAll(std::vector<Module::ptr> &ms);
 
 private:

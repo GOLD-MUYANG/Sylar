@@ -51,15 +51,20 @@ int main()
         return 1;
     }
 
-    EXPECT_EQ(module->statusString(), "load=1;ready=0;up=0;connect=0;disconnect=0;unload=0");
+    EXPECT_EQ(module->statusString(),
+              "load=1;before_args=0;after_args=0;ready=0;up=0;connect=0;disconnect=0;unload=0");
+    manager.onBeforeArgsParse(1, argv);
+    manager.onAfterArgsParse(1, argv);
     manager.onServerReady();
     manager.onServerUp();
     auto stream = std::make_shared<sylar::SocketStream>(nullptr, false);
     manager.onConnect(stream);
     manager.onDisconnect(stream);
-    EXPECT_EQ(module->statusString(), "load=1;ready=1;up=1;connect=1;disconnect=1;unload=0");
+    EXPECT_EQ(module->statusString(),
+              "load=1;before_args=1;after_args=1;ready=1;up=1;connect=1;disconnect=1;unload=0");
     manager.delAll();
-    EXPECT_EQ(module->statusString(), "load=1;ready=1;up=1;connect=1;disconnect=1;unload=1");
+    EXPECT_EQ(module->statusString(),
+              "load=1;before_args=1;after_args=1;ready=1;up=1;connect=1;disconnect=1;unload=1");
     module.reset();
 
     return g_failures == 0 ? 0 : 1;

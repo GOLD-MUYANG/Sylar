@@ -125,47 +125,46 @@ AiGatewayConfig LoadConfig()
             node["request_deadline_ms"].as<uint64_t>(config.request_timeout_ms);
         config.max_total_attempts =
             node["max_total_attempts"].as<uint32_t>(config.max_total_attempts);
-        config.demo_trace_enabled =
-            node["demo_trace_enabled"].as<bool>(config.demo_trace_enabled);
+        config.demo_trace_enabled = node["demo_trace_enabled"].as<bool>(config.demo_trace_enabled);
 
         YAML::Node health_check = node["health_check"];
         config.health_check_enabled =
             ReadBool(health_check, "enabled", config.health_check_enabled);
-        config.health_check_path = health_check && health_check["path"]
-                                       ? health_check["path"].as<std::string>(
-                                             config.health_check_path)
-                                       : config.health_check_path;
-        config.health_check_timeout_ms = ReadUint64(
-            health_check, "timeout_ms", config.health_check_timeout_ms);
+        config.health_check_path =
+            health_check && health_check["path"]
+                ? health_check["path"].as<std::string>(config.health_check_path)
+                : config.health_check_path;
+        config.health_check_timeout_ms =
+            ReadUint64(health_check, "timeout_ms", config.health_check_timeout_ms);
 
         // 读取 G4 出站 limiter 配置。0 表示该维度不限制。
         YAML::Node limiter = node["limiter"];
-        config.upstream_options.limiter.max_global_concurrency = ReadUint32(
-            limiter, "max_global_concurrency",
-            config.upstream_options.limiter.max_global_concurrency);
-        config.upstream_options.limiter.max_service_concurrency = ReadUint32(
-            limiter, "max_service_concurrency",
-            config.upstream_options.limiter.max_service_concurrency);
-        config.upstream_options.limiter.max_endpoint_concurrency = ReadUint32(
-            limiter, "max_endpoint_concurrency",
-            config.upstream_options.limiter.max_endpoint_concurrency);
+        config.upstream_options.limiter.max_global_concurrency =
+            ReadUint32(limiter, "max_global_concurrency",
+                       config.upstream_options.limiter.max_global_concurrency);
+        config.upstream_options.limiter.max_service_concurrency =
+            ReadUint32(limiter, "max_service_concurrency",
+                       config.upstream_options.limiter.max_service_concurrency);
+        config.upstream_options.limiter.max_endpoint_concurrency =
+            ReadUint32(limiter, "max_endpoint_concurrency",
+                       config.upstream_options.limiter.max_endpoint_concurrency);
         config.upstream_options.limiter.max_global_qps =
             ReadUint32(limiter, "max_global_qps", config.upstream_options.limiter.max_global_qps);
-        config.upstream_options.limiter.max_service_qps = ReadUint32(
-            limiter, "max_service_qps", config.upstream_options.limiter.max_service_qps);
+        config.upstream_options.limiter.max_service_qps =
+            ReadUint32(limiter, "max_service_qps", config.upstream_options.limiter.max_service_qps);
         config.upstream_options.limiter.max_endpoint_qps = ReadUint32(
             limiter, "max_endpoint_qps", config.upstream_options.limiter.max_endpoint_qps);
 
         // 读取 G4 endpoint 熔断配置。具体状态机仍由 HttpCircuitBreaker 负责。
         YAML::Node circuit_breaker = node["circuit_breaker"];
-        config.upstream_options.circuit_breaker.enabled = ReadBool(
-            circuit_breaker, "enabled", config.upstream_options.circuit_breaker.enabled);
-        config.upstream_options.circuit_breaker.consecutive_failure_threshold = ReadUint32(
-            circuit_breaker, "failure_threshold",
-            config.upstream_options.circuit_breaker.consecutive_failure_threshold);
-        config.upstream_options.circuit_breaker.consecutive_failure_threshold = ReadUint32(
-            circuit_breaker, "consecutive_failure_threshold",
-            config.upstream_options.circuit_breaker.consecutive_failure_threshold);
+        config.upstream_options.circuit_breaker.enabled =
+            ReadBool(circuit_breaker, "enabled", config.upstream_options.circuit_breaker.enabled);
+        config.upstream_options.circuit_breaker.consecutive_failure_threshold =
+            ReadUint32(circuit_breaker, "failure_threshold",
+                       config.upstream_options.circuit_breaker.consecutive_failure_threshold);
+        config.upstream_options.circuit_breaker.consecutive_failure_threshold =
+            ReadUint32(circuit_breaker, "consecutive_failure_threshold",
+                       config.upstream_options.circuit_breaker.consecutive_failure_threshold);
         config.upstream_options.circuit_breaker.failure_rate_threshold =
             ReadUint32(circuit_breaker, "failure_rate_threshold",
                        config.upstream_options.circuit_breaker.failure_rate_threshold);
@@ -175,9 +174,9 @@ AiGatewayConfig LoadConfig()
         config.upstream_options.circuit_breaker.failure_window_size =
             ReadUint32(circuit_breaker, "failure_window_size",
                        config.upstream_options.circuit_breaker.failure_window_size);
-        config.upstream_options.circuit_breaker.open_timeout_ms = ReadUint64(
-            circuit_breaker, "open_timeout_ms",
-            config.upstream_options.circuit_breaker.open_timeout_ms);
+        config.upstream_options.circuit_breaker.open_timeout_ms =
+            ReadUint64(circuit_breaker, "open_timeout_ms",
+                       config.upstream_options.circuit_breaker.open_timeout_ms);
         config.upstream_options.circuit_breaker.half_open_max_requests =
             ReadUint32(circuit_breaker, "half_open_max_requests",
                        config.upstream_options.circuit_breaker.half_open_max_requests);
@@ -229,6 +228,14 @@ public:
 
     // 当服务器准备完成后调用
     // 这里适合做路由注册、服务发现、连接池初始化等工作
+    /**
+读取 ai_gateway.yml 配置。
+找到指定名字的 HttpServer。
+创建上游 HTTP client / real provider runtime。
+往这个 HTTP server 的 ServletDispatch 里注册路由：/v1/chat/completions
+/internal/status
+/demo
+*/
     bool onServerReady() override
     {
         // 读取 AI Gateway 配置
@@ -283,8 +290,8 @@ public:
                                              config.upstream_options, &upstream_error);
             if (!client)
             {
-                SYLAR_LOG_ERROR(g_logger) << "ai gateway invalid providers error="
-                                          << upstream_error;
+                SYLAR_LOG_ERROR(g_logger)
+                    << "ai gateway invalid providers error=" << upstream_error;
                 return false;
             }
         }
