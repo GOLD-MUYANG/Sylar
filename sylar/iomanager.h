@@ -50,6 +50,7 @@ protected:
 
 private:
     //将fd和回调进行绑定，一旦fd上有事件发生，就会调用对应的回调函数
+    // 这个 fd 正在等什么事件？ 等 READ 还是 WRITE？ 事件发生后恢复哪个协程？
     struct FdContext
     {
         typedef Mutex MutexType;

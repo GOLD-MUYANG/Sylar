@@ -16,7 +16,7 @@ static sylar::Logger::ptr g_logger = SYLAR_LOG_NAME("system");
 //线程被哪个调度器所管理
 static thread_local Scheduler *t_scheduler = nullptr;
 //线程的主协程(只记录非调度器线程的主
-// 协程，调度器线程的协程是m_rootFiber)
+// 协程，调度器线程的协程是m_rootFiber，也就是那个执行这个调度器的线程直接去跑调度器的run方法)
 //当来一个任务时，要切换上下文了，记录好现在的协程，等任务执行完了，再切换回来
 //之所以要存，是因为可以理解为任务队列里的协程随用随释放，根本不用回去
 // static thread_local Fiber *t_fiber = nullptr;

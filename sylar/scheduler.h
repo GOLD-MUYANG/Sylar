@@ -38,7 +38,7 @@ public:
         }
     }
 
-    //批量任务调度(一次性完成这些任务)
+    //批量任务调度(一次性加入这些任务到调度队列)
     template <class InputIterator>
     void schedule(InputIterator begin, InputIterator end, int thread = -1)
     {
@@ -57,6 +57,7 @@ public:
         }
     }
 
+    //把一个任务交给其他调度器执行，就是这个线程先给这个任务挂起来，然后把任务重新入队到另一个Scheduler
     void switchTo(int thread = -1);
     std::ostream &dump(std::ostream &os);
 

@@ -51,6 +51,7 @@ HttpServer::HttpServer(bool keepalive, sylar::IOManager *worker, sylar::IOManage
 void HttpServer::setName(const std::string &v)
 {
     TcpServer::setName(v);
+    // 更新默认的 404 Servlet
     m_dispatch->setDefault(std::make_shared<NotFoundServlet>(v));
 }
 

@@ -56,8 +56,11 @@ protected:
     virtual void startAccept(Socket::ptr sock);
 
 private:
+    // 注意它不是客户端 socket，而是服务端监听 socket。
     std::vector<Socket::ptr> m_socks;
+    // 专门处理客户端连接
     IOManager *m_worker;
+    // 专门 accept 新连接
     IOManager *m_acceptWorker;
     uint64_t m_recvTimeout;
     std::string m_name;

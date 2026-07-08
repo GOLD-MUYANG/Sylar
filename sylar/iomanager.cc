@@ -138,7 +138,8 @@ int IOManager::addEvent(int fd, Event event, std::function<void()> cb)
 
     // 3、如果没有，就设置好，然后被epoll监听
     // 3.1
-    // 原来有没有事件，如果有并且新加的不是和以前一样的，那么epoll要做的操作就是修改，如果原来没有，那么epoll要做的，就是新增一个监控
+    // 原来有没有事件，如果有并且新加的不是和以前一样的，
+    // 那么epoll要做的操作就是修改，如果原来没有，那么epoll要做的，就是新增一个监控
     int op = fd_ctx->events ? EPOLL_CTL_MOD : EPOLL_CTL_ADD;
     epoll_event epevent;
     epevent.events = EPOLLET | fd_ctx->events | event;
@@ -381,6 +382,7 @@ void IOManager::idle()
                 uint8_t dummy[256];
                 while (read(m_tickleFds[0], dummy, sizeof(dummy)) > 0)
                     ;
+                //需要注意的是这个continue跳出的是最外面的while，也就是直接跳出去整个idle了
                 continue;
             }
             //如果是正常的IO读写事件
