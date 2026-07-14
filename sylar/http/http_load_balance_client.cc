@@ -154,8 +154,7 @@ std::string HttpEndpoint::getLimitKey() const
     return ss.str();
 }
 
-HttpEndpointStatusSnapshot
-HttpEndpoint::snapshot(HttpCircuitBreakerState circuit_state) const
+HttpEndpointStatusSnapshot HttpEndpoint::snapshot(HttpCircuitBreakerState circuit_state) const
 {
     MutexType::Lock lock(m_mutex);
 
@@ -309,10 +308,10 @@ HttpResult::ptr HttpLoadBalanceClient::request(HttpMethod method,
             std::string endpoint_key = endpoint->getLimitKey();
             tried_endpoint_keys.push_back(endpoint_key);
 
-            SYLAR_LOG_DEBUG(g_logger) << "HttpLoadBalanceClient request method="
-                                      << HttpMethodToString(method)
-                                      << " endpoint=" << endpoint->getHost() << ":"
-                                      << endpoint->getPort() << " path=" << request_path;
+            SYLAR_LOG_DEBUG(g_logger)
+                << "HttpLoadBalanceClient request method=" << HttpMethodToString(method)
+                << " endpoint=" << endpoint->getHost() << ":" << endpoint->getPort()
+                << " path=" << request_path;
 
             // 用选择出来的终端发请求；selectEndpoint() 已经占用活跃请求名额。
             HttpConcurrencyLimitGuard::ptr limit_guard =
@@ -321,8 +320,7 @@ HttpResult::ptr HttpLoadBalanceClient::request(HttpMethod method,
             {
                 endpoint->recordRateLimited("http client concurrency limited");
                 endpoint->endRequest();
-                result = std::make_shared<HttpResult>((int)HttpResult::Error::RATE_LIMITED,
-                                                      nullptr,
+                result = std::make_shared<HttpResult>((int)HttpResult::Error::RATE_LIMITED, nullptr,
                                                       "http client concurrency limited");
                 AppendTraceAttempt(trace, endpoint_key, "rate_limited", result, result->error);
                 continue;
@@ -334,8 +332,8 @@ HttpResult::ptr HttpLoadBalanceClient::request(HttpMethod method,
             {
                 endpoint->recordFailure("http client circuit open");
                 endpoint->endRequest();
-                result = std::make_shared<HttpResult>((int)HttpResult::Error::CIRCUIT_OPEN,
-                                                      nullptr, "http client circuit open");
+                result = std::make_shared<HttpResult>((int)HttpResult::Error::CIRCUIT_OPEN, nullptr,
+                                                      "http client circuit open");
                 AppendTraceAttempt(trace, endpoint_key, "circuit_open", result, result->error);
                 continue;
             }
@@ -639,8 +637,8 @@ HttpLoadBalanceClient::selectRandom(const std::vector<std::string> &tried_endpoi
  *
  * @return 选中的 Endpoint；如果没有可用 Endpoint，返回 nullptr
  */
-HttpEndpoint::ptr HttpLoadBalanceClient::selectWeightedRoundRobin(
-    const std::vector<std::string> &tried_endpoint_keys)
+HttpEndpoint::ptr
+HttpLoadBalanceClient::selectWeightedRoundRobin(const std::vector<std::string> &tried_endpoint_keys)
 {
     MutexType::Lock lock(m_mutex);
 
@@ -710,8 +708,8 @@ HttpEndpoint::ptr HttpLoadBalanceClient::selectWeightedRoundRobin(
  *
  * @return 选中的 Endpoint；如果没有可用 Endpoint，返回 nullptr
  */
-HttpEndpoint::ptr HttpLoadBalanceClient::selectLeastConnection(
-    const std::vector<std::string> &tried_endpoint_keys)
+HttpEndpoint::ptr
+HttpLoadBalanceClient::selectLeastConnection(const std::vector<std::string> &tried_endpoint_keys)
 {
     MutexType::Lock lock(m_mutex);
 

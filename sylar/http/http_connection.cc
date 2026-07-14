@@ -462,9 +462,8 @@ HttpConnection::DoRequest(HttpRequest::ptr req, Uri::ptr uri, const HttpRequestO
     {
         attempt.detail = "create_socket_error";
         return MakeHttpResult((int)HttpResult::Error::CREATE_SOCKET_ERROR, nullptr,
-                              "create socket fail: " + addr->toString() +
-                                  " errno=" + std::to_string(errno) +
-                                  " errstr=" + std::string(strerror(errno)),
+                              "create socket fail: " + addr->toString() + " errno=" +
+                                  std::to_string(errno) + " errstr=" + std::string(strerror(errno)),
                               attempt);
     }
     if (is_ssl)
@@ -507,8 +506,7 @@ HttpConnection::DoRequest(HttpRequest::ptr req, Uri::ptr uri, const HttpRequestO
         return MakeHttpResult((int)HttpResult::Error::TIMEOUT, nullptr,
                               "recv response timeout: " + addr->toString() +
                                   " recv_timeout_ms:" + std::to_string(options.recv_timeout_ms) +
-                                  " total_timeout_ms:" +
-                                  std::to_string(options.total_timeout_ms),
+                                  " total_timeout_ms:" + std::to_string(options.total_timeout_ms),
                               attempt);
     }
     attempt.phase = HttpAttemptPhase::RESPONSE_RECEIVED;
@@ -964,10 +962,9 @@ HttpResult::ptr HttpConnectionPool::doRequest(HttpRequest::ptr req,
     int rt = conn->sendRequest(req, &attempt);
     if (rt == 0)
     {
-        return MakeHttpResult((int)HttpResult::Error::SEND_CLOSE_BY_PEER, nullptr,
-                              "send request closed by peer: " +
-                                  sock->getRemoteAddress()->toString(),
-                              attempt);
+        return MakeHttpResult(
+            (int)HttpResult::Error::SEND_CLOSE_BY_PEER, nullptr,
+            "send request closed by peer: " + sock->getRemoteAddress()->toString(), attempt);
     }
     if (rt < 0)
     {
@@ -984,10 +981,8 @@ HttpResult::ptr HttpConnectionPool::doRequest(HttpRequest::ptr req,
         attempt.may_have_submitted = true;
         return MakeHttpResult((int)HttpResult::Error::TIMEOUT, nullptr,
                               "recv response timeout: " + sock->getRemoteAddress()->toString() +
-                                  " recv_timeout_ms:" +
-                                  std::to_string(options.recv_timeout_ms) +
-                                  " total_timeout_ms:" +
-                                  std::to_string(options.total_timeout_ms),
+                                  " recv_timeout_ms:" + std::to_string(options.recv_timeout_ms) +
+                                  " total_timeout_ms:" + std::to_string(options.total_timeout_ms),
                               attempt);
     }
     if (rsp->isClose())

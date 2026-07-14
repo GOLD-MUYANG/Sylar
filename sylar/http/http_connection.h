@@ -478,14 +478,20 @@ private:
     std::string m_host;
     std::string m_vhost;
     uint32_t m_port;
+    //最大连接数量
     uint32_t m_maxSize;
+    //单条连接最大存活时间
     uint32_t m_maxAliveTime;
+    //单条连接最大使用次数
     uint32_t m_maxRequest;
     bool m_isHttps;
 
     MutexType m_mutex;
+    //当前空闲连接
     std::list<HttpConnection *> m_conns;
+    //等待连接的协程
     std::list<std::shared_ptr<Waiter>> m_waiters;
+    //空闲和借出连接的总数
     std::atomic<int32_t> m_total = {0};
 };
 

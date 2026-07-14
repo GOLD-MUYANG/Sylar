@@ -22,6 +22,7 @@ class HttpLoadBalanceClient;
  */
 struct HttpRetryOptions
 {
+    //固定、线性、指数退避。
     enum class Backoff
     {
         FIXED = 0,

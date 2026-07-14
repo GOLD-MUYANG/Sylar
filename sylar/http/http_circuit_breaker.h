@@ -57,6 +57,17 @@ struct HttpCircuitBreakerOptions
     // 如果设置为 0，则不根据连续失败次数触发熔断。
     uint32_t consecutive_failure_threshold = 5;
 
+    /**
+
+失败率规则
+failure_rate_threshold = 50;
+failure_rate_min_request = 10;
+failure_window_size = 20;
+表示：
+最多保存最近 20 次结果；
+至少积累 10 次结果后才计算；
+失败率达到 50% 就打开熔断。
+*/
     // 最近窗口失败率阈值，单位是百分比。
     // 例如 50 表示最近窗口中失败率 >= 50% 时触发熔断。
     // 如果设置为 0，则不根据失败率触发熔断。
