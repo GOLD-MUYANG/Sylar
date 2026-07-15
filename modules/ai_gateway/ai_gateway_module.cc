@@ -308,6 +308,7 @@ public:
         RealProviderRuntime::ptr real_runtime;
         if (real_config.enabled)
         {
+            // DoProviderHttpPost：最终执行 HTTP POST 的函数。
             real_runtime = RealProviderRuntime::Create(real_config, DoProviderHttpPost);
             if (!real_runtime)
             {
@@ -326,6 +327,8 @@ public:
         AiGatewayServlet::UpstreamPost upstream;
         if (client)
         {
+            //这里是构造的Mock upstream，请求的时候把 Provider 基础地址和
+            // /v1/chat/completions拼起来；
             upstream = [client, config](const std::string &body,
                                         sylar::http::HttpLoadBalanceRequestTrace *trace)
             {
