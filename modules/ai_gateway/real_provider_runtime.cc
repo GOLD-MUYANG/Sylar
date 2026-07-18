@@ -36,9 +36,8 @@ bool ReadBool(const YAML::Node &node, const char *key, bool default_value)
     return node && node[key] ? node[key].as<bool>(default_value) : default_value;
 }
 
-std::string ReadString(const YAML::Node &node,
-                       const char *key,
-                       const std::string &default_value = "")
+std::string
+ReadString(const YAML::Node &node, const char *key, const std::string &default_value = "")
 {
     return node && node[key] ? node[key].as<std::string>(default_value) : default_value;
 }
@@ -47,11 +46,6 @@ bool HasEnvValue(const std::string &name)
 {
     const char *value = std::getenv(name.c_str());
     return value && *value;
-}
-
-bool IsSupportedLoadBalance(const std::string &load_balance)
-{
-    return load_balance == "ROUND_ROBIN";
 }
 
 const char *CategoryToString(ProviderErrorCategory category)
@@ -138,37 +132,6 @@ Json::Value BuildCandidatesEvent(const std::vector<ProviderCandidate> &candidate
     return event;
 }
 
-std::vector<ProviderCandidate> OrderCandidates(const std::vector<ProviderCandidate> &candidates,
-                                               const std::string &load_balance,
-                                               uint64_t sequence)
-{
-    if (candidates.size() <= 1 || load_balance != "ROUND_ROBIN")
-    {
-        return candidates;
-    }
-
-    // 当前 real-provider 第一版只支持 ROUND_ROBIN：
-    // 每次业务请求改变候选起点，executor 仍负责按候选顺序执行和故障转移。
-    std::vector<ProviderCandidate> ordered;
-    ordered.reserve(candidates.size());
-    const size_t start = static_cast<size_t>((sequence - 1) % candidates.size());
-    for (size_t i = 0; i < candidates.size(); ++i)
-    {
-        ordered.push_back(candidates[(start + i) % candidates.size()]);
-    }
-    return ordered;
-}
-
-LogicalModelRouter BuildRequestRouter(const std::vector<ProviderCandidate> &candidates)
-{
-    LogicalModelRouter router;
-    for (const auto &candidate : candidates)
-    {
-        router.addCandidate(candidate);
-    }
-    return router;
-}
-
 Json::Value BuildAttemptEvent(const ProviderCandidate &candidate,
                               const sylar::http::HttpResult::ptr &result,
                               RequestExecutionBudget *budget,
@@ -188,8 +151,7 @@ Json::Value BuildAttemptEvent(const ProviderCandidate &candidate,
     event["try_next_candidate"] = decision.try_next_candidate;
     event["elapsed_ms"] = Json::UInt64(elapsed_ms);
     event["consumed_attempts"] = budget ? budget->consumedAttempts() : 0;
-    event["remaining_deadline_ms"] =
-        budget ? Json::UInt64(budget->remainingMs()) : Json::UInt64(0);
+    event["remaining_deadline_ms"] = budget ? Json::UInt64(budget->remainingMs()) : Json::UInt64(0);
     return event;
 }
 
@@ -224,8 +186,8 @@ bool LoadRealProviderRuntimeConfig(const YAML::Node &root,
     parsed.request_deadline_ms =
         ReadUint64(node, "request_deadline_ms", parsed.request_deadline_ms);
     parsed.max_total_attempts = ReadUint32(node, "max_total_attempts", parsed.max_total_attempts);
-    parsed.request_options = sylar::http::HttpRequestOptions::FromTimeout(
-        parsed.request_deadline_ms);
+    parsed.request_options =
+        sylar::http::HttpRequestOptions::FromTimeout(parsed.request_deadline_ms);
 
     YAML::Node limiter = node["limiter"];
     parsed.limiter_options.max_global_concurrency = ReadUint32(
@@ -247,11 +209,10 @@ bool LoadRealProviderRuntimeConfig(const YAML::Node &root,
     parsed.circuit_breaker_options.consecutive_failure_threshold =
         ReadUint32(breaker, "consecutive_failure_threshold",
                    parsed.circuit_breaker_options.consecutive_failure_threshold);
-    parsed.circuit_breaker_options.open_timeout_ms = ReadUint64(
-        breaker, "open_timeout_ms", parsed.circuit_breaker_options.open_timeout_ms);
-    parsed.circuit_breaker_options.half_open_max_requests =
-        ReadUint32(breaker, "half_open_max_requests",
-                   parsed.circuit_breaker_options.half_open_max_requests);
+    parsed.circuit_breaker_options.open_timeout_ms =
+        ReadUint64(breaker, "open_timeout_ms", parsed.circuit_breaker_options.open_timeout_ms);
+    parsed.circuit_breaker_options.half_open_max_requests = ReadUint32(
+        breaker, "half_open_max_requests", parsed.circuit_breaker_options.half_open_max_requests);
 
     YAML::Node providers = node["providers"];
     if (providers && providers.IsSequence())
@@ -308,11 +269,11 @@ bool LoadRealProviderRuntimeConfig(const YAML::Node &root,
         {
             return SetError(error, "real_providers 启用时至少需要一个 enabled provider");
         }
-        if (!IsSupportedLoadBalance(parsed.load_balance))
+        sylar::load_balance::LoadBalanceStrategy strategy;
+        if (!sylar::load_balance::ParseLoadBalanceStrategy(parsed.load_balance, &strategy))
         {
             return SetError(error,
-                            "real_providers load_balance 仅支持 ROUND_ROBIN: " +
-                                parsed.load_balance);
+                            "real_providers load_balance 不支持: " + parsed.load_balance);
         }
 
         LogicalModelRouter router;
@@ -353,8 +314,7 @@ RealProviderRuntime::ptr RealProviderRuntime::Create(const RealProviderRuntimeCo
     return runtime;
 }
 
-RealProviderRuntime::RealProviderRuntime(const RealProviderRuntimeConfig &config)
-    : m_config(config)
+RealProviderRuntime::RealProviderRuntime(const RealProviderRuntimeConfig &config) : m_config(config)
 {
 }
 
@@ -378,6 +338,23 @@ bool RealProviderRuntime::init(const ProviderHttpPost &post, std::string *error)
         sylar::http::HttpCircuitBreaker::Create(m_config.circuit_breaker_options);
 
     m_handler = CreateOpenAICompatibleAttemptHandler(post, m_config.request_options);
+    sylar::load_balance::LoadBalanceStrategy strategy;
+    if (!sylar::load_balance::ParseLoadBalanceStrategy(m_config.load_balance, &strategy))
+    {
+        return SetError(error, "real provider selector 策略无效: " + m_config.load_balance);
+    }
+
+    m_selector = CreateProviderCandidateSelector(
+        strategy, [this](const ProviderCandidate &candidate) {
+            return getProviderInFlight(candidate.name);
+        },
+        [this](const ProviderCandidate &candidate) {
+            recordAttemptBegin(candidate);
+        });
+    if (!m_selector)
+    {
+        return SetError(error, "real provider selector 创建失败");
+    }
     if (error)
     {
         error->clear();
@@ -403,27 +380,36 @@ sylar::http::HttpResult::ptr RealProviderRuntime::execute(const GatewayChatReque
         MutexType::Lock lock(m_mutex);
         sequence = ++m_requestSequence;
     }
-    candidates = OrderCandidates(candidates, m_config.load_balance, sequence);
     AppendTrace(trace, BuildCandidatesEvent(candidates));
 
-    LogicalModelRouter request_router = BuildRequestRouter(candidates);
     RequestExecutionBudget budget(m_config.request_deadline_ms, m_config.max_total_attempts,
                                   "real-provider-" + std::to_string(sequence));
 
     ProviderAttemptExecutor executor(
-        request_router,
+        m_router,
         [this, trace, &budget](const ProviderCandidate &candidate,
                                const GatewayChatRequest &inner_request,
-                               RequestExecutionBudget *inner_budget) {
-            recordAttemptBegin(candidate);
+                               RequestExecutionBudget *inner_budget)
+        {
             const uint64_t started = sylar::GetCurrentMS();
-            sylar::http::HttpResult::ptr result = m_handler(candidate, inner_request, inner_budget);
+            sylar::http::HttpResult::ptr result;
+            try
+            {
+                result = m_handler(candidate, inner_request, inner_budget);
+            }
+            catch (...)
+            {
+                const uint64_t elapsed = sylar::GetCurrentMS() - started;
+                recordAttemptEnd(candidate, nullptr);
+                AppendTrace(trace, BuildAttemptEvent(candidate, nullptr, &budget, elapsed));
+                throw;
+            }
             const uint64_t elapsed = sylar::GetCurrentMS() - started;
             recordAttemptEnd(candidate, result);
             AppendTrace(trace, BuildAttemptEvent(candidate, result, &budget, elapsed));
             return result;
         },
-        m_controls);
+        m_controls, m_selector);
 
     sylar::http::HttpResult::ptr result = executor.execute(request, &budget);
     Json::Value returned = MakeTraceEvent("response_returned");
@@ -495,6 +481,19 @@ void RealProviderRuntime::recordAttemptEnd(const ProviderCandidate &candidate,
         }
         return;
     }
+}
+
+uint32_t RealProviderRuntime::getProviderInFlight(const std::string &provider_name) const
+{
+    MutexType::Lock lock(m_mutex);
+    for (const auto &stats : m_stats)
+    {
+        if (stats.candidate.name == provider_name)
+        {
+            return stats.in_flight;
+        }
+    }
+    return 0;
 }
 
 Json::Value RealProviderRuntime::buildCandidateStatus(const ProviderStats &stats) const

@@ -4,6 +4,7 @@
 #include "sylar/http/http_circuit_breaker.h"
 #include "sylar/http/http_concurrency_limiter.h"
 #include "sylar/http/http_connection.h"
+#include "sylar/load_balance/candidate_selector.h"
 #include "sylar/log.h"
 
 #include <cstdlib>
@@ -76,6 +77,63 @@ sylar::ai_gateway::ProviderCandidate MakeCandidate(const std::string &name,
     candidate.enabled = true;
     return candidate;
 }
+
+sylar::load_balance::CandidateAccessors<sylar::ai_gateway::ProviderCandidate>
+MakeProviderAccessors()
+{
+    sylar::load_balance::CandidateAccessors<sylar::ai_gateway::ProviderCandidate> accessors;
+    accessors.key = [](const sylar::ai_gateway::ProviderCandidate &candidate) {
+        return candidate.name;
+    };
+    accessors.available = [](const sylar::ai_gateway::ProviderCandidate &candidate) {
+        return candidate.enabled;
+    };
+    accessors.weight = [](const sylar::ai_gateway::ProviderCandidate &candidate) {
+        return candidate.weight;
+    };
+    accessors.active_requests =
+        [](const sylar::ai_gateway::ProviderCandidate &) { return (uint32_t)0; };
+    return accessors;
+}
+
+sylar::ai_gateway::ProviderCandidateSelector::ptr MakeRoundRobinSelector()
+{
+    return sylar::ai_gateway::CreateProviderCandidateSelector(
+        sylar::load_balance::LoadBalanceStrategy::ROUND_ROBIN);
+}
+
+class RecordingSelector
+    : public sylar::load_balance::CandidateSelector<sylar::ai_gateway::ProviderCandidate>
+{
+public:
+    bool select(const std::string &,
+                const std::vector<sylar::ai_gateway::ProviderCandidate> &candidates,
+                const std::vector<std::string> &tried_keys,
+                sylar::ai_gateway::ProviderCandidate *selected) override
+    {
+        tried_sizes.push_back(tried_keys.size());
+        if (!selected)
+        {
+            return false;
+        }
+        for (const auto &candidate : candidates)
+        {
+            bool tried = false;
+            for (const auto &key : tried_keys)
+            {
+                tried = tried || key == candidate.name;
+            }
+            if (!tried)
+            {
+                *selected = candidate;
+                return true;
+            }
+        }
+        return false;
+    }
+
+    std::vector<size_t> tried_sizes;
+};
 
 sylar::http::HttpResult::ptr OkResult()
 {
@@ -207,6 +265,11 @@ void test_router_keeps_only_compatible_candidates_in_model_pool()
     EXPECT_EQ(candidates.size(), (size_t)1);
     EXPECT_EQ(candidates[0].name, "provider-a");
     EXPECT_EQ(candidates[0].upstream_model, "a-model");
+
+    auto duplicate = first;
+    duplicate.logical_model = "other-model";
+    EXPECT_TRUE(!router.addCandidate(duplicate, &error));
+    EXPECT_TRUE(error.find("name 重复") != std::string::npos);
 }
 
 void test_provider_aware_executor_preserves_candidate_specific_request_shape()
@@ -225,7 +288,8 @@ void test_provider_aware_executor_preserves_candidate_specific_request_shape()
                     const sylar::ai_gateway::GatewayChatRequest &) {
             observed.push_back(candidate);
             return OkResult();
-        });
+        },
+        MakeRoundRobinSelector());
 
     sylar::ai_gateway::GatewayChatRequest request;
     request.model = "general-chat";
@@ -279,7 +343,8 @@ void test_openai_adapter_builds_request_and_parses_response_via_executor()
     request.messages.push_back({"system", "be concise"});
     request.messages.push_back({"user", "hello from user"});
 
-    sylar::ai_gateway::ProviderAttemptExecutor executor(router, handler);
+    sylar::ai_gateway::ProviderAttemptExecutor executor(router, handler,
+                                                        MakeRoundRobinSelector());
     auto result = executor.execute(request);
     EXPECT_TRUE(result != nullptr);
     EXPECT_EQ(call_count, 1);
@@ -318,7 +383,8 @@ void test_openai_adapter_sanitizes_parse_error()
     request.model = "general-chat";
     request.messages.push_back({"user", "hello from user"});
 
-    sylar::ai_gateway::ProviderAttemptExecutor executor(router, handler);
+    sylar::ai_gateway::ProviderAttemptExecutor executor(router, handler,
+                                                        MakeRoundRobinSelector());
     auto result = executor.execute(request);
     EXPECT_TRUE(result != nullptr);
     EXPECT_EQ(result->result, (int)sylar::http::HttpResult::Error::RESPONSE_PARSE_FAIL);
@@ -358,7 +424,8 @@ void test_request_execution_budget_limits_provider_failover_attempts()
                       sylar::ai_gateway::RequestExecutionBudget *) {
             ++call_count;
             return RetryableNotSentFailure();
-        });
+        },
+        MakeRoundRobinSelector());
 
     sylar::ai_gateway::GatewayChatRequest request;
     request.model = "general-chat";
@@ -414,7 +481,8 @@ void test_openai_adapter_applies_remaining_budget_to_http_options()
     request.messages.push_back({"user", "hello"});
 
     sylar::ai_gateway::RequestExecutionBudget budget(1000, 1, "req-r3");
-    sylar::ai_gateway::ProviderAttemptExecutor executor(router, handler);
+    sylar::ai_gateway::ProviderAttemptExecutor executor(router, handler,
+                                                        MakeRoundRobinSelector());
     auto result = executor.execute(request, &budget);
 
     EXPECT_TRUE(result != nullptr);
@@ -449,7 +517,8 @@ void test_provider_status_classification_controls_failover()
                              sylar::ai_gateway::RequestExecutionBudget *) {
             ++bad_request_calls;
             return ProviderStatusError(sylar::http::HttpStatus::BAD_REQUEST);
-        });
+        },
+        MakeRoundRobinSelector());
     auto bad_request_result = bad_request_executor.execute(request);
     EXPECT_TRUE(bad_request_result != nullptr);
     EXPECT_EQ(bad_request_calls, 1);
@@ -466,7 +535,8 @@ void test_provider_status_classification_controls_failover()
                 return ProviderStatusError(sylar::http::HttpStatus::TOO_MANY_REQUESTS);
             }
             return OkResult();
-        });
+        },
+        MakeRoundRobinSelector());
     auto rate_limited_result = rate_limited_executor.execute(request);
     EXPECT_TRUE(rate_limited_result != nullptr);
     EXPECT_EQ(rate_limited_result->result, (int)sylar::http::HttpResult::Error::OK);
@@ -484,7 +554,8 @@ void test_provider_status_classification_controls_failover()
                 return ProviderStatusError(sylar::http::HttpStatus::INTERNAL_SERVER_ERROR);
             }
             return OkResult();
-        });
+        },
+        MakeRoundRobinSelector());
     auto server_error_result = server_error_executor.execute(request);
     EXPECT_TRUE(server_error_result != nullptr);
     EXPECT_EQ(server_error_result->result, (int)sylar::http::HttpResult::Error::OK);
@@ -512,7 +583,8 @@ void test_unknown_submitted_result_stops_provider_failover()
                       sylar::ai_gateway::RequestExecutionBudget *) {
             ++call_count;
             return ProviderUnknownSubmittedResult();
-        });
+        },
+        MakeRoundRobinSelector());
 
     sylar::ai_gateway::GatewayChatRequest request;
     request.model = "general-chat";
@@ -619,7 +691,8 @@ void test_openai_adapter_returns_sanitized_provider_errors()
     request.model = "general-chat";
     request.messages.push_back({"user", "hello from user"});
 
-    sylar::ai_gateway::ProviderAttemptExecutor executor(router, handler);
+    sylar::ai_gateway::ProviderAttemptExecutor executor(router, handler,
+                                                        MakeRoundRobinSelector());
     auto result = executor.execute(request);
     EXPECT_TRUE(result != nullptr);
     EXPECT_EQ(result->result, (int)sylar::http::HttpResult::Error::HTTP_STATUS_ERROR);
@@ -661,7 +734,8 @@ void test_r6_offline_recorded_openai_shape_is_accepted()
     request.model = "general-chat";
     request.messages.push_back({"user", "hello"});
 
-    sylar::ai_gateway::ProviderAttemptExecutor executor(router, handler);
+    sylar::ai_gateway::ProviderAttemptExecutor executor(router, handler,
+                                                        MakeRoundRobinSelector());
     auto result = executor.execute(request);
     EXPECT_TRUE(result != nullptr);
     EXPECT_EQ(result->result, (int)sylar::http::HttpResult::Error::OK);
@@ -696,7 +770,8 @@ void test_r6_rejects_incomplete_recorded_provider_shape()
     request.model = "general-chat";
     request.messages.push_back({"user", "hello"});
 
-    sylar::ai_gateway::ProviderAttemptExecutor executor(router, handler);
+    sylar::ai_gateway::ProviderAttemptExecutor executor(router, handler,
+                                                        MakeRoundRobinSelector());
     auto result = executor.execute(request);
     EXPECT_TRUE(result != nullptr);
     EXPECT_EQ(result->result, (int)sylar::http::HttpResult::Error::RESPONSE_PARSE_FAIL);
@@ -741,7 +816,7 @@ void test_r5_executor_releases_limiter_permit_on_all_return_paths()
             [&results, i](const sylar::ai_gateway::ProviderCandidate &,
                           const sylar::ai_gateway::GatewayChatRequest &,
                           sylar::ai_gateway::RequestExecutionBudget *) { return results[i]; },
-            controls);
+            controls, MakeRoundRobinSelector());
 
         auto result = executor.execute(request);
         EXPECT_TRUE(result != nullptr);
@@ -759,7 +834,7 @@ void test_r5_executor_releases_limiter_permit_on_all_return_paths()
            sylar::ai_gateway::RequestExecutionBudget *) -> sylar::http::HttpResult::ptr {
             throw std::runtime_error("provider handler exploded");
         },
-        controls);
+        controls, MakeRoundRobinSelector());
 
     auto exception_result = exception_executor.execute(request);
     EXPECT_TRUE(exception_result != nullptr);
@@ -803,7 +878,7 @@ void test_r5_limiter_rejection_fails_over_without_leaking_other_candidate_permit
             attempted.push_back(candidate.name);
             return OkResult();
         },
-        controls);
+        controls, MakeRoundRobinSelector());
 
     auto result = executor.execute(request);
     EXPECT_TRUE(result != nullptr);
@@ -846,7 +921,7 @@ void test_r5_breaker_half_open_allows_only_configured_probe_count()
            sylar::ai_gateway::RequestExecutionBudget *) {
             return ProviderStatusError(sylar::http::HttpStatus::SERVICE_UNAVAILABLE);
         },
-        controls);
+        controls, MakeRoundRobinSelector());
 
     auto open_result = open_executor.execute(request);
     EXPECT_TRUE(open_result != nullptr);
@@ -864,12 +939,127 @@ void test_r5_breaker_half_open_allows_only_configured_probe_count()
             second_probe_rejected = second_probe == nullptr;
             return ProviderStatusError(sylar::http::HttpStatus::SERVICE_UNAVAILABLE);
         },
-        controls);
+        controls, MakeRoundRobinSelector());
 
     auto half_open_result = half_open_executor.execute(request);
     EXPECT_TRUE(half_open_result != nullptr);
     EXPECT_TRUE(second_probe_rejected);
     EXPECT_EQ((int)breaker->getState("provider-a"), (int)sylar::http::HttpCircuitBreakerState::OPEN);
+}
+
+void test_executor_uses_injected_weighted_selector_across_requests()
+{
+    sylar::ai_gateway::LogicalModelRouter router;
+    std::string error;
+    auto provider_a = MakeCandidate("provider-a", "general-chat", "https://api-a.example",
+                                    "/v1/chat/completions", "upstream-a", "PROVIDER_A_KEY");
+    auto provider_b = MakeCandidate("provider-b", "general-chat", "https://api-b.example",
+                                    "/v1/chat/completions", "upstream-b", "PROVIDER_B_KEY");
+    provider_a.weight = 2;
+    provider_b.weight = 1;
+    EXPECT_TRUE(router.addCandidate(provider_a, &error));
+    EXPECT_TRUE(router.addCandidate(provider_b, &error));
+
+    auto selector = sylar::load_balance::CreateCandidateSelector(
+        sylar::load_balance::LoadBalanceStrategy::WEIGHTED_ROUND_ROBIN,
+        MakeProviderAccessors());
+    std::vector<std::string> attempted;
+    sylar::ai_gateway::ProviderAttemptExecutor executor(
+        router,
+        [&attempted](const sylar::ai_gateway::ProviderCandidate &candidate,
+                     const sylar::ai_gateway::GatewayChatRequest &,
+                     sylar::ai_gateway::RequestExecutionBudget *) {
+            attempted.push_back(candidate.name);
+            return OkResult();
+        },
+        sylar::ai_gateway::ProviderExecutionControls(), selector);
+
+    sylar::ai_gateway::GatewayChatRequest request;
+    request.model = "general-chat";
+    request.messages.push_back({"user", "hello"});
+    for (size_t i = 0; i < 6; ++i)
+    {
+        auto result = executor.execute(request);
+        EXPECT_TRUE(result != nullptr);
+        EXPECT_EQ(result->result, (int)sylar::http::HttpResult::Error::OK);
+    }
+
+    const std::vector<std::string> expected = {
+        "provider-a", "provider-a", "provider-b", "provider-a", "provider-a", "provider-b"};
+    EXPECT_EQ(attempted.size(), expected.size());
+    for (size_t i = 0; i < attempted.size() && i < expected.size(); ++i)
+    {
+        EXPECT_EQ(attempted[i], expected[i]);
+    }
+}
+
+void test_executor_reselects_with_tried_keys_during_failover()
+{
+    sylar::ai_gateway::LogicalModelRouter router;
+    std::string error;
+    EXPECT_TRUE(router.addCandidate(
+        MakeCandidate("provider-a", "general-chat", "https://api-a.example",
+                      "/v1/chat/completions", "upstream-a", "PROVIDER_A_KEY"),
+        &error));
+    EXPECT_TRUE(router.addCandidate(
+        MakeCandidate("provider-b", "general-chat", "https://api-b.example",
+                      "/v1/chat/completions", "upstream-b", "PROVIDER_B_KEY"),
+        &error));
+
+    std::shared_ptr<RecordingSelector> selector(new RecordingSelector);
+    std::vector<std::string> attempted;
+    sylar::ai_gateway::ProviderAttemptExecutor executor(
+        router,
+        [&attempted](const sylar::ai_gateway::ProviderCandidate &candidate,
+                     const sylar::ai_gateway::GatewayChatRequest &,
+                     sylar::ai_gateway::RequestExecutionBudget *) {
+            attempted.push_back(candidate.name);
+            return candidate.name == "provider-a" ? RetryableNotSentFailure() : OkResult();
+        },
+        sylar::ai_gateway::ProviderExecutionControls(), selector);
+
+    sylar::ai_gateway::GatewayChatRequest request;
+    request.model = "general-chat";
+    request.messages.push_back({"user", "hello"});
+    auto result = executor.execute(request);
+    EXPECT_TRUE(result != nullptr);
+    EXPECT_EQ(result->result, (int)sylar::http::HttpResult::Error::OK);
+    EXPECT_EQ(attempted.size(), (size_t)2);
+    EXPECT_EQ(attempted[0], std::string("provider-a"));
+    EXPECT_EQ(attempted[1], std::string("provider-b"));
+    EXPECT_EQ(selector->tried_sizes.size(), (size_t)2);
+    EXPECT_EQ(selector->tried_sizes[0], (size_t)0);
+    EXPECT_EQ(selector->tried_sizes[1], (size_t)1);
+}
+
+void test_executor_does_not_fallback_when_selector_is_missing()
+{
+    sylar::ai_gateway::LogicalModelRouter router;
+    std::string error;
+    EXPECT_TRUE(router.addCandidate(
+        MakeCandidate("provider-a", "general-chat", "https://api-a.example",
+                      "/v1/chat/completions", "upstream-a", "PROVIDER_A_KEY"),
+        &error));
+
+    size_t attempts = 0;
+    sylar::ai_gateway::ProviderAttemptExecutor executor(
+        router,
+        [&attempts](const sylar::ai_gateway::ProviderCandidate &,
+                    const sylar::ai_gateway::GatewayChatRequest &,
+                    sylar::ai_gateway::RequestExecutionBudget *) {
+            ++attempts;
+            return OkResult();
+        },
+        sylar::ai_gateway::ProviderExecutionControls(), nullptr);
+
+    sylar::ai_gateway::GatewayChatRequest request;
+    request.model = "general-chat";
+    request.messages.push_back({"user", "hello"});
+    auto result = executor.execute(request);
+    EXPECT_TRUE(result != nullptr);
+    EXPECT_EQ(result->result, (int)sylar::http::HttpResult::Error::CONNECT_FAIL);
+    EXPECT_TRUE(result->error.find("provider selector missing") != std::string::npos);
+    EXPECT_EQ(attempts, (size_t)0);
 }
 
 } // namespace
@@ -892,5 +1082,8 @@ int main()
     test_r5_executor_releases_limiter_permit_on_all_return_paths();
     test_r5_limiter_rejection_fails_over_without_leaking_other_candidate_permit();
     test_r5_breaker_half_open_allows_only_configured_probe_count();
+    test_executor_uses_injected_weighted_selector_across_requests();
+    test_executor_reselects_with_tried_keys_during_failover();
+    test_executor_does_not_fallback_when_selector_is_missing();
     return g_failures == 0 ? 0 : 1;
 }

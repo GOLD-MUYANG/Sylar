@@ -5,12 +5,14 @@
 #include "sylar/http/http_circuit_breaker.h"
 #include "sylar/http/http_concurrency_limiter.h"
 #include "sylar/http/http_connection.h"
+#include "sylar/load_balance/candidate_selector.h"
 
 #include <stdint.h>
 
 #include <functional>
 #include <map>
 #include <memory>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -100,6 +102,17 @@ struct ProviderCandidate
     uint32_t weight = 1;
     bool enabled = false;
 };
+
+typedef sylar::load_balance::CandidateSelector<ProviderCandidate> ProviderCandidateSelector;
+typedef std::function<uint32_t(const ProviderCandidate &)> ProviderActiveRequests;
+typedef std::function<void(const ProviderCandidate &)> ProviderSelectedHandler;
+
+// 根据配置层解析出的策略创建真实 Provider 候选选择器。
+// active_requests 由运行时注入，用于 LEAST_CONNECTION 读取实时并发数。
+ProviderCandidateSelector::ptr CreateProviderCandidateSelector(
+    sylar::load_balance::LoadBalanceStrategy strategy,
+    ProviderActiveRequests active_requests = ProviderActiveRequests(),
+    ProviderSelectedHandler on_selected = ProviderSelectedHandler());
 
 // 真实 Provider 执行阶段可选的治理组件。
 //
@@ -207,6 +220,7 @@ public:
 private:
     std::map<std::string, std::vector<ProviderCandidate>> m_candidates;
     std::map<std::string, std::string> m_compatibilityKeys;
+    std::set<std::string> m_candidateNames;
 };
 
 // Provider 尝试执行器。
@@ -223,11 +237,16 @@ public:
         const ProviderCandidate &, const GatewayChatRequest &, RequestExecutionBudget *)>
         BudgetedAttemptHandler;
 
-    ProviderAttemptExecutor(const LogicalModelRouter &router, AttemptHandler handler);
-    ProviderAttemptExecutor(const LogicalModelRouter &router, BudgetedAttemptHandler handler);
+    ProviderAttemptExecutor(const LogicalModelRouter &router,
+                            AttemptHandler handler,
+                            ProviderCandidateSelector::ptr selector);
     ProviderAttemptExecutor(const LogicalModelRouter &router,
                             BudgetedAttemptHandler handler,
-                            const ProviderExecutionControls &controls);
+                            ProviderCandidateSelector::ptr selector);
+    ProviderAttemptExecutor(const LogicalModelRouter &router,
+                            BudgetedAttemptHandler handler,
+                            const ProviderExecutionControls &controls,
+                            ProviderCandidateSelector::ptr selector);
 
     sylar::http::HttpResult::ptr execute(const GatewayChatRequest &request) const;
     sylar::http::HttpResult::ptr execute(const GatewayChatRequest &request,
@@ -241,6 +260,7 @@ private:
     LogicalModelRouter m_router;
     BudgetedAttemptHandler m_handler;
     ProviderExecutionControls m_controls;
+    ProviderCandidateSelector::ptr m_selector;
 };
 
 } // namespace ai_gateway

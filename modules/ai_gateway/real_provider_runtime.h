@@ -70,6 +70,7 @@ private:
     void recordAttemptBegin(const ProviderCandidate &candidate);
     void recordAttemptEnd(const ProviderCandidate &candidate,
                           const sylar::http::HttpResult::ptr &result);
+    uint32_t getProviderInFlight(const std::string &provider_name) const;
     Json::Value buildCandidateStatus(const ProviderStats &stats) const;
 
 private:
@@ -79,6 +80,7 @@ private:
     LogicalModelRouter m_router;
     ProviderExecutionControls m_controls;
     ProviderAttemptExecutor::BudgetedAttemptHandler m_handler;
+    sylar::load_balance::CandidateSelector<ProviderCandidate>::ptr m_selector;
     mutable MutexType m_mutex;
     std::vector<ProviderStats> m_stats;
     uint64_t m_requestSequence = 0;

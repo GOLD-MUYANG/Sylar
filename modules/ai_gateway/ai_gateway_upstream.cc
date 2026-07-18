@@ -17,31 +17,6 @@ void SetError(std::string *error, const std::string &message)
     }
 }
 
-bool ParseStrategy(const std::string &value, sylar::http::HttpLoadBalanceStrategy *strategy)
-{
-    if (value == "ROUND_ROBIN")
-    {
-        *strategy = sylar::http::HttpLoadBalanceStrategy::ROUND_ROBIN;
-        return true;
-    }
-    if (value == "RANDOM")
-    {
-        *strategy = sylar::http::HttpLoadBalanceStrategy::RANDOM;
-        return true;
-    }
-    if (value == "WEIGHTED_ROUND_ROBIN")
-    {
-        *strategy = sylar::http::HttpLoadBalanceStrategy::WEIGHTED_ROUND_ROBIN;
-        return true;
-    }
-    if (value == "LEAST_CONNECTION")
-    {
-        *strategy = sylar::http::HttpLoadBalanceStrategy::LEAST_CONNECTION;
-        return true;
-    }
-    return false;
-}
-
 } // namespace
 
 sylar::http::HttpLoadBalanceClient::ptr CreateLoadBalanceClient(
@@ -70,7 +45,7 @@ sylar::http::HttpLoadBalanceClient::ptr CreateLoadBalanceClient(
     }
 
     sylar::http::HttpLoadBalanceStrategy strategy;
-    if (!ParseStrategy(strategy_name, &strategy))
+    if (!sylar::load_balance::ParseLoadBalanceStrategy(strategy_name, &strategy))
     {
         SetError(error, "不支持的负载均衡策略: " + strategy_name);
         return nullptr;

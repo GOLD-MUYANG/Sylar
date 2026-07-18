@@ -28,6 +28,7 @@ set(LIB_SRC
     sylar/http/http_circuit_breaker.cc
     sylar/http/http_concurrency_limiter.cc
     sylar/http/http_load_balance_client.cc
+    sylar/load_balance/candidate_selector.cc
     sylar/http/http_connection.cc
     sylar/http/http_request_options.cc
     sylar/uri.rl.cc

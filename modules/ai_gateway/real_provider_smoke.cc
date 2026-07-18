@@ -140,8 +140,13 @@ RealProviderSmokeResult RunRealProviderSmokeAttempt(const RealProviderSmokeConfi
     }
 
     RequestExecutionBudget budget(config.request_deadline_ms, 1, "manual-real-provider-smoke");
+    // 手工 smoke 只有一个候选，不涉及配置驱动的多候选选择；仍显式提供 selector，
+    // 避免执行器内部存在与正式 AI Gateway 配置无关的隐式策略。
+    ProviderCandidateSelector::ptr selector = CreateProviderCandidateSelector(
+        sylar::load_balance::LoadBalanceStrategy::ROUND_ROBIN);
     ProviderAttemptExecutor executor(
-        router, CreateOpenAICompatibleAttemptHandler(post, BuildSmokeRequestOptions(config)));
+        router, CreateOpenAICompatibleAttemptHandler(post, BuildSmokeRequestOptions(config)),
+        selector);
     sylar::http::HttpResult::ptr result = executor.execute(BuildSmokeChatRequest(config), &budget);
 
     const uint32_t attempts = budget.consumedAttempts();

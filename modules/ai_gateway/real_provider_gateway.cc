@@ -12,6 +12,23 @@ namespace ai_gateway
 namespace
 {
 
+sylar::load_balance::CandidateAccessors<ProviderCandidate>
+BuildProviderAccessors(const ProviderActiveRequests &active_requests,
+                       const ProviderSelectedHandler &on_selected)
+{
+    sylar::load_balance::CandidateAccessors<ProviderCandidate> accessors;
+    accessors.key = [](const ProviderCandidate &candidate) { return candidate.name; };
+    accessors.available = [](const ProviderCandidate &candidate) { return candidate.enabled; };
+    accessors.weight = [](const ProviderCandidate &candidate) { return candidate.weight; };
+    accessors.active_requests = active_requests;
+    if (!accessors.active_requests)
+    {
+        accessors.active_requests = [](const ProviderCandidate &) { return (uint32_t)0; };
+    }
+    accessors.on_selected = on_selected;
+    return accessors;
+}
+
 void SetError(std::string *error, const std::string &message)
 {
     if (error)
@@ -136,6 +153,15 @@ bool IsKnownNotSubmitted(const sylar::http::HttpAttemptOutcome &attempt)
 }
 
 } // namespace
+
+ProviderCandidateSelector::ptr CreateProviderCandidateSelector(
+    sylar::load_balance::LoadBalanceStrategy strategy,
+    ProviderActiveRequests active_requests,
+    ProviderSelectedHandler on_selected)
+{
+    return sylar::load_balance::CreateCandidateSelector(
+        strategy, BuildProviderAccessors(active_requests, on_selected));
+}
 
 // 对一次 Provider 调用结果进行错误归类，并生成后续处理决策。
 //
@@ -404,6 +430,11 @@ bool LogicalModelRouter::addCandidate(const ProviderCandidate &candidate, std::s
         SetError(error, "provider candidate 字段不能为空");
         return false;
     }
+    if (m_candidateNames.find(candidate.name) != m_candidateNames.end())
+    {
+        SetError(error, "provider candidate name 重复: " + candidate.name);
+        return false;
+    }
     // 检查同一个 logical_model 下的 compatibility_key 是否一致。
     //
     // 目的：
@@ -423,6 +454,7 @@ bool LogicalModelRouter::addCandidate(const ProviderCandidate &candidate, std::s
     // 当前顺序就是后续尝试顺序：
     // 先加入的 candidate 会先被尝试。
     m_candidates[candidate.logical_model].push_back(candidate);
+    m_candidateNames.insert(candidate.name);
     return true;
 }
 
@@ -444,25 +476,29 @@ bool LogicalModelRouter::hasModel(const std::string &logical_model) const
 }
 
 ProviderAttemptExecutor::ProviderAttemptExecutor(const LogicalModelRouter &router,
-                                                 AttemptHandler handler)
+                                                 AttemptHandler handler,
+                                                 ProviderCandidateSelector::ptr selector)
     : m_router(router),
       m_handler([handler](const ProviderCandidate &candidate,
                           const GatewayChatRequest &request,
                           RequestExecutionBudget *)
-                { return handler ? handler(candidate, request) : sylar::http::HttpResult::ptr(); })
-{
-}
-
-ProviderAttemptExecutor::ProviderAttemptExecutor(const LogicalModelRouter &router,
-                                                 BudgetedAttemptHandler handler)
-    : m_router(router), m_handler(handler)
+                { return handler ? handler(candidate, request) : sylar::http::HttpResult::ptr(); }),
+      m_selector(selector)
 {
 }
 
 ProviderAttemptExecutor::ProviderAttemptExecutor(const LogicalModelRouter &router,
                                                  BudgetedAttemptHandler handler,
-                                                 const ProviderExecutionControls &controls)
-    : m_router(router), m_handler(handler), m_controls(controls)
+                                                 ProviderCandidateSelector::ptr selector)
+    : m_router(router), m_handler(handler), m_selector(selector)
+{
+}
+
+ProviderAttemptExecutor::ProviderAttemptExecutor(const LogicalModelRouter &router,
+                                                 BudgetedAttemptHandler handler,
+                                                 const ProviderExecutionControls &controls,
+                                                 ProviderCandidateSelector::ptr selector)
+    : m_router(router), m_handler(handler), m_controls(controls), m_selector(selector)
 {
 }
 
@@ -488,19 +524,29 @@ sylar::http::HttpResult::ptr ProviderAttemptExecutor::execute(const GatewayChatR
                                  "logical model has no provider candidate");
     }
 
-    sylar::http::HttpResult::ptr last_result;
+    if (!m_selector)
+    {
+        return MakeExecutorError(sylar::http::HttpResult::Error::CONNECT_FAIL,
+                                 "provider selector missing");
+    }
 
-    // 按候选 provider 顺序逐个尝试。
-    // 当前没有做负载均衡、随机和权重。
-    // candidate 顺序就是实际尝试顺序。
-    for (const auto &candidate : candidates)
+    sylar::http::HttpResult::ptr last_result;
+    std::vector<std::string> tried_keys;
+    while (tried_keys.size() < candidates.size())
     {
         if (budget && !budget->tryConsumeAttempt())
         {
             return MakeBudgetExhaustedError(budget);
         }
+        ProviderCandidate candidate;
+        if (!m_selector->select(request.model, candidates, tried_keys, &candidate))
+        {
+            break;
+        }
 
+        // 选择后立即排除当前候选，治理拒绝或故障转移时都不会重复选择。
         const std::string endpoint_key = candidate.name;
+        tried_keys.push_back(endpoint_key);
         sylar::http::HttpConcurrencyLimitGuard::ptr limit_guard =
             m_controls.limiter ? m_controls.limiter->tryAcquire(endpoint_key) : nullptr;
         if (m_controls.limiter && !limit_guard)

@@ -1,6 +1,7 @@
 #include "sylar/hook.h"
 #include "sylar/http/http_circuit_breaker.h"
 #include "sylar/http/http_load_balance_client.h"
+#include "sylar/load_balance/candidate_selector.h"
 #include "sylar/iomanager.h"
 #include "sylar/log.h"
 
@@ -12,6 +13,7 @@
 #include <string>
 #include <sys/socket.h>
 #include <thread>
+#include <type_traits>
 #include <unistd.h>
 
 // 使用 Sylar 根日志器输出测试信息和错误信息。
@@ -20,6 +22,10 @@ static sylar::Logger::ptr g_logger = SYLAR_LOG_ROOT();
 // 记录测试失败次数。
 // 使用 atomic 是因为部分测试会涉及多线程 / IOManager 调度。
 static std::atomic<int> g_failures(0);
+
+static_assert(std::is_same<sylar::http::HttpLoadBalanceStrategy,
+                           sylar::load_balance::LoadBalanceStrategy>::value,
+              "HTTP 负载均衡策略必须复用公共策略枚举");
 
 /**
  * @brief 简单的断言宏：判断表达式是否为 true。

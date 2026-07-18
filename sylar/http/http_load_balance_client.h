@@ -4,6 +4,7 @@
 #include "http_client.h"
 #include "http_concurrency_limiter.h"
 #include "http_circuit_breaker.h"
+#include "sylar/load_balance/candidate_selector.h"
 #include "sylar/mutex.h"
 #include <stdint.h>
 #include <vector>
@@ -26,16 +27,7 @@ enum class HttpEndpointStatus
 
 const char *HttpEndpointStatusToString(HttpEndpointStatus status);
 
-/**
- * @brief 多实例 HTTP 客户端负载均衡策略。
- */
-enum class HttpLoadBalanceStrategy
-{
-    ROUND_ROBIN = 0,
-    RANDOM = 1,
-    WEIGHTED_ROUND_ROBIN = 2,
-    LEAST_CONNECTION = 3,
-};
+using HttpLoadBalanceStrategy = sylar::load_balance::LoadBalanceStrategy;
 
 const char *HttpCircuitBreakerStateToString(HttpCircuitBreakerState state);
 
@@ -233,23 +225,15 @@ public:
 
 private:
     HttpLoadBalanceClient(const std::vector<HttpEndpoint::ptr> &endpoints,
-                          HttpLoadBalanceStrategy strategy,
+                          sylar::load_balance::CandidateSelector<HttpEndpoint::ptr>::ptr selector,
                           const HttpConcurrencyLimitOptions &limit_options,
                           const HttpCircuitBreakerOptions &circuit_options);
 
     HttpEndpoint::ptr selectEndpoint(const std::vector<std::string> &tried_endpoint_keys = {});
-    HttpEndpoint::ptr selectRoundRobin(const std::vector<std::string> &tried_endpoint_keys);
-    HttpEndpoint::ptr selectRandom(const std::vector<std::string> &tried_endpoint_keys);
-    HttpEndpoint::ptr
-    selectWeightedRoundRobin(const std::vector<std::string> &tried_endpoint_keys);
-    HttpEndpoint::ptr selectLeastConnection(const std::vector<std::string> &tried_endpoint_keys);
 
 private:
     std::vector<HttpEndpoint::ptr> m_endpoints;
-    HttpLoadBalanceStrategy m_strategy = HttpLoadBalanceStrategy::ROUND_ROBIN;
-    size_t m_nextIndex = 0;
-    size_t m_weightedIndex = 0;
-    uint32_t m_weightedReturned = 0;
+    sylar::load_balance::CandidateSelector<HttpEndpoint::ptr>::ptr m_selector;
     HttpConcurrencyLimiter::ptr m_limiter;
     HttpCircuitBreaker::ptr m_circuitBreaker;
     MutexType m_mutex;

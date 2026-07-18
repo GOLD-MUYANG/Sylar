@@ -14,3 +14,7 @@
 
 
 对application中直接引用Module重写的方法做了修改，现在统一通过ModuleManager去引用。
+
+LogicalModelRouter就这个东西我看到存了不同的provider了，可是怎么区分他是哪一档的模型呢？也没有名字。
+
+修改了负载均衡代码，抽象了一下做成类，现在可以http和ai_provider共用同一套了

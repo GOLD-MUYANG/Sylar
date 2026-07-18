@@ -1,5 +1,5 @@
 ai_gateway:
-  enabled: false
+  enabled: true
   server_name: ai-gateway
   request_timeout_ms: 800
   request_deadline_ms: 800
@@ -36,7 +36,7 @@ ai_gateway:
 
 real_providers:
   # 真实 Provider 演示只启用当前要验证且已设置 Key 的 provider。
-  enabled: true
+  enabled: false
   server_name: ai-gateway
   route_path: /v1/chat/completions
   demo_enabled: true

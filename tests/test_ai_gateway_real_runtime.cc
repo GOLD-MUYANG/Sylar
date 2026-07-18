@@ -4,9 +4,14 @@
 #include "sylar/log.h"
 
 #include <cstdlib>
+#include <atomic>
+#include <condition_variable>
 #include <json/json.h>
 #include <memory>
+#include <mutex>
+#include <stdexcept>
 #include <string>
+#include <thread>
 #include <yaml-cpp/yaml.h>
 
 static sylar::Logger::ptr g_logger = SYLAR_LOG_ROOT();
@@ -269,6 +274,163 @@ void test_runtime_rotates_first_provider_for_successful_requests()
     unsetenv("SYLAR_TEST_REAL_PROVIDER_KEY");
 }
 
+void test_runtime_config_accepts_all_common_strategies_and_rejects_unknown()
+{
+    setenv("SYLAR_TEST_REAL_PROVIDER_KEY", "sk-runtime-secret", 1);
+    const std::vector<std::string> strategies = {
+        "ROUND_ROBIN", "RANDOM", "WEIGHTED_ROUND_ROBIN", "LEAST_CONNECTION"};
+    for (const auto &strategy : strategies)
+    {
+        YAML::Node root = RuntimeYaml();
+        root["real_providers"]["load_balance"] = strategy;
+        sylar::ai_gateway::RealProviderRuntimeConfig config;
+        std::string error;
+        EXPECT_TRUE(sylar::ai_gateway::LoadRealProviderRuntimeConfig(root, &config, &error));
+        EXPECT_EQ(config.load_balance, strategy);
+    }
+
+    YAML::Node invalid = RuntimeYaml();
+    invalid["real_providers"]["load_balance"] = "UNKNOWN";
+    sylar::ai_gateway::RealProviderRuntimeConfig config;
+    std::string error;
+    EXPECT_TRUE(!sylar::ai_gateway::LoadRealProviderRuntimeConfig(invalid, &config, &error));
+    EXPECT_TRUE(error.find("UNKNOWN") != std::string::npos);
+    unsetenv("SYLAR_TEST_REAL_PROVIDER_KEY");
+}
+
+void test_runtime_weighted_round_robin_uses_provider_weight()
+{
+    setenv("SYLAR_TEST_REAL_PROVIDER_KEY", "sk-runtime-secret", 1);
+    YAML::Node root = RuntimeYamlWithTwoProviders();
+    root["real_providers"]["load_balance"] = "WEIGHTED_ROUND_ROBIN";
+    root["real_providers"]["providers"][0]["weight"] = 2;
+    root["real_providers"]["providers"][1]["weight"] = 1;
+
+    sylar::ai_gateway::RealProviderRuntimeConfig config;
+    std::string error;
+    EXPECT_TRUE(sylar::ai_gateway::LoadRealProviderRuntimeConfig(root, &config, &error));
+    std::vector<std::string> attempted;
+    auto runtime = sylar::ai_gateway::RealProviderRuntime::Create(
+        config,
+        [&attempted](const sylar::ai_gateway::ProviderCandidate &candidate,
+                     const sylar::ai_gateway::ProviderHttpRequest &) {
+            attempted.push_back(candidate.name);
+            return ProviderOkBody("answer");
+        });
+    EXPECT_TRUE(runtime != nullptr);
+    if (!runtime)
+    {
+        unsetenv("SYLAR_TEST_REAL_PROVIDER_KEY");
+        return;
+    }
+
+    sylar::ai_gateway::GatewayChatRequest request;
+    request.model = "general-chat";
+    request.messages.push_back({"user", "hello"});
+    for (size_t i = 0; i < 6; ++i)
+    {
+        EXPECT_EQ(runtime->execute(request)->result, (int)sylar::http::HttpResult::Error::OK);
+    }
+    const std::vector<std::string> expected = {
+        "provider-a", "provider-a", "provider-b", "provider-a", "provider-a", "provider-b"};
+    EXPECT_EQ(attempted.size(), expected.size());
+    for (size_t i = 0; i < attempted.size() && i < expected.size(); ++i)
+    {
+        EXPECT_EQ(attempted[i], expected[i]);
+    }
+    unsetenv("SYLAR_TEST_REAL_PROVIDER_KEY");
+}
+
+void test_runtime_least_connection_reads_latest_in_flight()
+{
+    setenv("SYLAR_TEST_REAL_PROVIDER_KEY", "sk-runtime-secret", 1);
+    YAML::Node root = RuntimeYamlWithTwoProviders();
+    root["real_providers"]["load_balance"] = "LEAST_CONNECTION";
+    sylar::ai_gateway::RealProviderRuntimeConfig config;
+    std::string error;
+    EXPECT_TRUE(sylar::ai_gateway::LoadRealProviderRuntimeConfig(root, &config, &error));
+
+    std::mutex mutex;
+    std::condition_variable condition;
+    bool provider_a_entered = false;
+    bool release_provider_a = false;
+    std::atomic<uint32_t> provider_a_calls(0);
+    std::atomic<uint32_t> provider_b_calls(0);
+    auto runtime = sylar::ai_gateway::RealProviderRuntime::Create(
+        config,
+        [&](const sylar::ai_gateway::ProviderCandidate &candidate,
+            const sylar::ai_gateway::ProviderHttpRequest &) {
+            if (candidate.name == "provider-a")
+            {
+                ++provider_a_calls;
+                std::unique_lock<std::mutex> lock(mutex);
+                provider_a_entered = true;
+                condition.notify_all();
+                condition.wait(lock, [&release_provider_a]() { return release_provider_a; });
+            }
+            else
+            {
+                ++provider_b_calls;
+            }
+            return ProviderOkBody("answer");
+        });
+    EXPECT_TRUE(runtime != nullptr);
+    if (!runtime)
+    {
+        unsetenv("SYLAR_TEST_REAL_PROVIDER_KEY");
+        return;
+    }
+
+    sylar::ai_gateway::GatewayChatRequest request;
+    request.model = "general-chat";
+    request.messages.push_back({"user", "hello"});
+    std::thread first([runtime, request]() { runtime->execute(request); });
+    {
+        std::unique_lock<std::mutex> lock(mutex);
+        condition.wait(lock, [&provider_a_entered]() { return provider_a_entered; });
+    }
+    EXPECT_EQ(runtime->execute(request)->result, (int)sylar::http::HttpResult::Error::OK);
+    EXPECT_EQ(runtime->execute(request)->result, (int)sylar::http::HttpResult::Error::OK);
+    EXPECT_EQ(provider_a_calls.load(), (uint32_t)1);
+    EXPECT_EQ(provider_b_calls.load(), (uint32_t)2);
+    {
+        std::lock_guard<std::mutex> lock(mutex);
+        release_provider_a = true;
+    }
+    condition.notify_all();
+    first.join();
+    unsetenv("SYLAR_TEST_REAL_PROVIDER_KEY");
+}
+
+void test_runtime_releases_in_flight_when_handler_throws()
+{
+    setenv("SYLAR_TEST_REAL_PROVIDER_KEY", "sk-runtime-secret", 1);
+    sylar::ai_gateway::RealProviderRuntimeConfig config;
+    std::string error;
+    EXPECT_TRUE(sylar::ai_gateway::LoadRealProviderRuntimeConfig(RuntimeYaml(), &config, &error));
+    auto runtime = sylar::ai_gateway::RealProviderRuntime::Create(
+        config,
+        [](const sylar::ai_gateway::ProviderCandidate &,
+           const sylar::ai_gateway::ProviderHttpRequest &) -> sylar::http::HttpResult::ptr {
+            throw std::runtime_error("runtime handler failure");
+        });
+    EXPECT_TRUE(runtime != nullptr);
+    if (!runtime)
+    {
+        unsetenv("SYLAR_TEST_REAL_PROVIDER_KEY");
+        return;
+    }
+
+    sylar::ai_gateway::GatewayChatRequest request;
+    request.model = "general-chat";
+    request.messages.push_back({"user", "hello"});
+    auto result = runtime->execute(request);
+    EXPECT_TRUE(result != nullptr);
+    EXPECT_EQ(result->result, (int)sylar::http::HttpResult::Error::CONNECT_FAIL);
+    EXPECT_EQ(runtime->buildStatusJson()["providers"][0]["in_flight"].asUInt(), 0U);
+    unsetenv("SYLAR_TEST_REAL_PROVIDER_KEY");
+}
+
 } // namespace
 
 int main()
@@ -277,5 +439,9 @@ int main()
     test_enabled_provider_requires_present_environment_key();
     test_runtime_executes_real_provider_and_builds_sanitized_trace_and_status();
     test_runtime_rotates_first_provider_for_successful_requests();
+    test_runtime_config_accepts_all_common_strategies_and_rejects_unknown();
+    test_runtime_weighted_round_robin_uses_provider_weight();
+    test_runtime_least_connection_reads_latest_in_flight();
+    test_runtime_releases_in_flight_when_handler_throws();
     return g_failures == 0 ? 0 : 1;
 }

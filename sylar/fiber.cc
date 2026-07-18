@@ -50,7 +50,7 @@ Fiber::Fiber()
     }
     //当前线程中协程数量+1
     ++s_fiber_count;
-    SYLAR_LOG_DEBUG(g_logger) << "Fiber触发构造函数结束，Fiber::Fiber id=" << m_id;
+    // SYLAR_LOG_DEBUG(g_logger) << "Fiber触发构造函数结束，Fiber::Fiber id=" << m_id;
 }
 
 //创建子协程，拥有独立的栈空间，执行函数cb
