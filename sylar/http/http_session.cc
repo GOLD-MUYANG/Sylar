@@ -86,7 +86,8 @@ HttpRequest::ptr HttpSession::recvRequest()
     int64_t length = parser->getContentLength();
     if (length > 0)
     {
-        // 1、前面不停地读，本来是想解析头的，但是可能把body也多读出来了，所以先判断是不是有，然后把多读的先写进body变量里
+        // 1、前面不停地读，本来是想解析头的，但是可能把body也多读出来了，
+        // 所以先判断是不是有，然后把多读的先写进body变量里
         std::string body;
         body.resize(length);
         int len = 0;
@@ -111,8 +112,7 @@ HttpRequest::ptr HttpSession::recvRequest()
             if (read_len <= 0)
             {
                 m_lastRecvRequestErrno = read_len < 0 ? errno : 0;
-                m_lastRecvRequestError =
-                    ClassifyReadFailure(read_len, m_lastRecvRequestErrno);
+                m_lastRecvRequestError = ClassifyReadFailure(read_len, m_lastRecvRequestErrno);
                 close();
                 return nullptr;
             }

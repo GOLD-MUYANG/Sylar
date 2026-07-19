@@ -211,7 +211,7 @@ void Scheduler::stop()
 
 void Scheduler::run()
 {
-    SYLAR_LOG_INFO(g_logger) << "Scheduler 的 run 方法执行";
+    // SYLAR_LOG_INFO(g_logger) << "Scheduler 的 run 方法执行";
     set_hook_enable(true);
     // 1、设置当前线程的调度器
     setThis();
